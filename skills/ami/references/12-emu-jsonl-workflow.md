@@ -338,7 +338,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Memrail CLI
-        run: pip install memrail-cli
+        run: pip install ami-sdk
 
       - name: Plan EMU changes
         run: ami emu-plan ./emus/ --json > plan.json
