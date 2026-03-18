@@ -1,6 +1,6 @@
 # Memrail Claude Code Plugin
 
-Expert system for SOMA AMI (Self-Organizing Memory Architecture — Adaptive Memory Intelligence).
+Expert system for SOMA AMI - decsision infrastructure for consequential actions.
 
 ## What's Included
 
