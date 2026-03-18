@@ -332,7 +332,7 @@ tag.device_type == 'mobile'    // From user agent
 Analyze trigger to determine ATOM dependencies:
 
 ```python
-from ami.analysis import extract_dependencies
+from memrail.analysis import extract_dependencies
 
 trigger = "state.user.tier == 'premium' AND tag.intent == 'upgrade'"
 deps = extract_dependencies(trigger)

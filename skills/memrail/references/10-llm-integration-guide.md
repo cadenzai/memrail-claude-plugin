@@ -366,15 +366,15 @@ For TypeScript/JavaScript applications:
 ### Installation
 
 ```bash
-npm install @memrail/ami-sdk
+npm install @memrail/sdk
 # or
-yarn add @memrail/ami-sdk
+yarn add @memrail/sdk
 ```
 
 ### Basic Usage
 
 ```typescript
-import { AMIClient, state, tag, event, StateObject } from '@memrail/ami-sdk';
+import { AMIClient, state, tag, event, StateObject } from '@memrail/sdk';
 
 const client = new AMIClient({
   apiKey: 'ami_...',
@@ -412,7 +412,7 @@ await client.emitEvent(
 ### StateObject Builder
 
 ```typescript
-import { StateObject } from '@memrail/ami-sdk';
+import { StateObject } from '@memrail/sdk';
 
 // Convert object to state atoms
 const userAtoms = new StateObject('user', {
@@ -520,5 +520,6 @@ POST /v1/workspaces/{workspace}/projects/{project}/activations/{activation_id}/a
 
 **See Also**:
 - [02-dsl-reference.md](02-dsl-reference.md) - Complete DSL syntax
-- [05-sdk-integration.md](05-sdk-integration.md) - Python SDK
+- [05-sdk-integration-python.md](05-sdk-integration-python.md) - Python SDK
+- [05b-sdk-integration-typescript.md](05b-sdk-integration-typescript.md) - TypeScript SDK
 - [11-emu-design-heuristics.md](11-emu-design-heuristics.md) - Design patterns

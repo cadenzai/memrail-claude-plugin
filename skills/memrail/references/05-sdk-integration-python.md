@@ -7,13 +7,13 @@
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [ATOM Builders](#atom-builders)
-- [EMU Management](#emu-management)
+- [EMU Management (CLI)](#emu-management-cli)
 - [Invoking the Engine](#invoking-the-engine)
 - [Event Ingestion](#event-ingestion)
 - [Complete Workflows](#complete-workflows)
 - [Testing & Debugging](#testing--debugging)
 - [Error Handling](#error-handling)
-- [CLI Commands](#cli-commands)
+- [Tool Management](#tool-management)
 - [Workspace Management](#workspace-management)
 - [EMU Validation Reports](#emu-validation-reports)
 - [Best Practices](#best-practices)
@@ -29,17 +29,17 @@
 
 ```bash
 # Using pip
-pip install ami-sdk
+pip install memrail
 
 # Using uv (faster)
-uv pip install ami-sdk
+uv pip install memrail
 ```
 
 ### Verify Installation
 
 ```python
-import ami
-print(ami.__version__)  # e.g., "2.0.0"
+import memrail
+print(memrail.__version__)  # e.g., "2.0.0"
 ```
 
 ## Configuration
@@ -67,7 +67,7 @@ export AMI_BASE_URL="https://api.ami.example.com"  # Optional, defaults to produ
 ```
 
 ```python
-from ami import AsyncAMIClient
+from memrail import AsyncAMIClient
 
 # Auto-loads from environment
 async with AsyncAMIClient() as client:
@@ -77,7 +77,7 @@ async with AsyncAMIClient() as client:
 #### Method 2: Explicit Configuration
 
 ```python
-from ami import AsyncAMIClient
+from memrail import AsyncAMIClient
 
 async with AsyncAMIClient(
     api_key="your-api-key",
@@ -93,8 +93,8 @@ async with AsyncAMIClient(
 #### Method 3: Configuration Object
 
 ```python
-from ami import AsyncAMIClient
-from ami.config import AMIConfig
+from memrail import AsyncAMIClient
+from memrail.config import AMIConfig
 
 config = AMIConfig.create(
     api_key="your-api-key",
@@ -147,7 +147,7 @@ ATOMs are typed facts provided to the decision engine.
 State ATOMs represent structured data from your system.
 
 ```python
-from ami.atoms import state
+from memrail.atoms import state
 
 # Simple state
 atoms = [
@@ -178,7 +178,7 @@ atoms = [
 For complex nested objects, use `atoms_from_dict` to automatically flatten:
 
 ```python
-from ami.atoms import atoms_from_dict
+from memrail.atoms import atoms_from_dict
 
 # Complex object from your application
 user = {
@@ -201,7 +201,7 @@ atoms = atoms_from_dict(user, prefix="user")
 Tag ATOMs represent categorizations and metadata.
 
 ```python
-from ami.atoms import tag
+from memrail.atoms import tag
 
 # Simple tags
 atoms = [
@@ -231,7 +231,7 @@ atoms = [
 Event ATOMs represent timestamped occurrences.
 
 ```python
-from ami.atoms import event
+from memrail.atoms import event
 from datetime import datetime, timezone
 
 # Simple event (timestamp = now)
@@ -262,27 +262,61 @@ atoms = [
 ]
 ```
 
-## EMU Management
+## EMU Management (CLI)
 
-### JSONL Sync Workflow (Recommended)
+EMUs are managed via the **`memrail` CLI** using an Infrastructure-as-Code workflow. The CLI is the preferred method for all EMU registration, updates, and lifecycle management.
 
-EMUs are managed via JSONL files using the IaC sync workflow:
+### Complete Command Reference
+
+| Command | Description |
+|---------|-------------|
+| **IaC Sync** | |
+| `memrail emu-pull` | Export remote EMUs to local JSONL files |
+| `memrail emu-plan` | Show diff between local and remote (like `terraform plan`) |
+| `memrail emu-apply` | Push local changes to remote (like `terraform apply`) |
+| `memrail emu-diff` | Show detailed diff for a specific EMU |
+| `memrail emu-validate` | Server-side ASR validation for all EMUs |
+| **EMU Management** | |
+| `memrail list-emus` | List EMUs in workspace/project |
+| `memrail get-emu` | Get details of a specific EMU |
+| `memrail change-state` | Change EMU lifecycle state (draft/shadow/canary/active/archived) |
+| `memrail archive` | Archive one or all EMUs |
+| `memrail register-emu` | Register EMUs from a file or folder |
+| `memrail update-emu` | Update EMU(s) from a JSON file |
+| **Tool Management** | |
+| `memrail tool-register` | Upload tool definitions from source files |
+| `memrail tool-list` | List discovered tool handlers locally |
+| `memrail tool-list-server` | List tools registered on server |
+| `memrail action-connectivity` | Check EMU actions can reach their tools |
+| **Workspace** | |
+| `memrail purge-workspace` | Purge all data in a workspace |
+| `memrail list-workspaces` | List workspaces |
+
+### IaC Sync Workflow (Primary)
+
+The `emu-pull` / `emu-plan` / `emu-apply` commands work like Terraform — pull remote state, edit locally, preview diff, push changes.
 
 ```bash
-# Pull existing EMUs from remote
+# 1. Pull existing EMUs from remote to local JSONL
 memrail emu-pull ./emus/ -w production -p my-project
 
-# Edit ./emus/emus.jsonl (one EMU per line)
-# Add, modify, or delete EMUs
+# 2. Edit ./emus/emus.jsonl (one EMU per line, JSON format)
+#    Add new lines, modify existing ones, delete lines to archive
 
-# Preview changes (like terraform plan)
-memrail emu-plan ./emus/
+# 3. Preview changes (dry-run, like terraform plan)
+memrail emu-plan ./emus/ -w production -p my-project
 
-# Apply changes to remote
-memrail emu-apply ./emus/ --yes
+# 4. Apply changes to remote
+memrail emu-apply ./emus/ -w production -p my-project --yes
+
+# 5. (Optional) Run server-side ASR validation after apply
+memrail emu-apply ./emus/ -w production -p my-project --yes -V
 ```
 
-**JSONL format:**
+#### JSONL Format
+
+Each line is a complete EMU definition:
+
 ```jsonl
 {"emu_key":"vip_escalation","trigger":"state.customer.tier == 'vip' AND state.ticket.priority == 'high'","action":{"type":"tool_call","intent":"ESCALATE_VIP","tool":{"tool_id":"zendesk_escalator","version":"1.0.0","args":{"queue":"vip-support"}}},"policy":{"mode":"auto","priority":9,"cooldown":{"seconds":7200,"gate":"ack"}},"expected_utility":0.95,"confidence":0.88,"intent":"Escalate VIP customer tickets to specialist queue"}
 {"emu_key":"welcome_premium","trigger":"state.user.tier == 'premium'","action":{"type":"tool_call","intent":"SEND_WELCOME_EMAIL","tool":{"tool_id":"mailer","version":"1.0.0","args":{"template":"premium_welcome"}}},"expected_utility":0.9,"confidence":0.95,"intent":"Welcome new premium users with onboarding email"}
@@ -293,204 +327,195 @@ memrail emu-apply ./emus/ --yes
 - PR-reviewable
 - No code execution required
 - CI/CD integration via pipeline
-- Lock file tracks deployed state
+- Lock file (`.emu.lock.jsonl`) tracks deployed state
 
-### SDK Registration (Scripting/Testing Only)
+#### Lock File
 
-For quick prototyping or scripted migrations, use the SDK directly:
+The `.emu.lock.jsonl` file tracks deployed state with content hashes:
+- **New EMUs**: In local file but not in lock → registers
+- **Modified EMUs**: Content hash differs → updates
+- **Deleted EMUs**: In lock but removed locally → archives
 
-```python
-async with AsyncAMIClient() as client:
-    response = await client.register_emu(
-        emu_key="welcome_premium_users",
-        trigger="state.user.tier == 'premium'",
-        action={
-            "type": "tool_call",
-            "intent": "SEND_WELCOME_EMAIL",
-            "tool": {
-                "tool_id": "mailer",
-                "version": "1.0.0",
-                "args": {"template": "premium_welcome"}
-            }
-        },
-        expected_utility=0.9,
-        confidence=0.95,
-        intent="Welcome new premium users",
-        decision_point="onboarding-check",  # Optional: scope to invocation site
-        workspace="production",
-        project="onboarding"
-    )
+Commit both `emus.jsonl` and `.emu.lock.jsonl` to version control.
 
-    print(f"Registered EMU: {response['emu_id']} (v{response['version']})")
+### Quick Registration (Single EMU)
+
+For registering EMUs from a file without the full IaC workflow:
+
+```bash
+# Register from a JSON file
+memrail register-emu ./emu.json -w production -p my-project
+
+# Register from a folder of JSON files
+memrail register-emu ./emus/ -w production -p my-project
+
+# Dry-run (validate without registering)
+memrail register-emu ./emu.json --dry-run
 ```
 
 ### Updating Existing EMUs
 
-Use `update_emu()` to modify an existing EMU without archiving. This preserves version history and activation data.
+Edit the JSONL file and re-apply — the IaC workflow detects changes automatically:
 
-```python
-# Update trigger and policy for an existing EMU
-response = await client.update_emu(
-    emu_key="vip_escalation",
-    trigger="state.customer.tier == 'vip' AND state.ticket.priority >= 'high'",  # Modified trigger
-    expected_utility=0.95,
-    confidence=0.90,
-    policy={
-        "mode": "auto",
-        "priority": 10,  # Increased priority
-        "cooldown": {"seconds": 3600, "gate": "activation"}
-    },
-    action={
-        "type": "tool_call",
-        "intent": "ESCALATE_TO_VIP_TEAM",
-        "tool": {"tool_id": "zendesk_escalator", "version": "2.2.0"}
-    },
-    workspace="production",
-    project="support"
-)
+```bash
+# 1. Edit emus.jsonl (modify trigger, action, policy, etc.)
+# 2. Preview what changed
+memrail emu-plan ./emus/ -w production -p my-project
 
-print(f"Updated EMU: {response['emu_key']} - {response.get('message', 'success')}")
+# 3. Apply the update
+memrail emu-apply ./emus/ -w production -p my-project --yes
 ```
 
-**API Endpoint**: `PUT /v1/workspaces/{workspace}/projects/{project}/emus/{emu_key}`
+For updating a single EMU from a JSON file:
 
-**When to use `update_emu()` vs `register_emu()`**:
-
-| Scenario | Method |
-|----------|--------|
-| Creating a new EMU | `register_emu()` |
-| Modifying trigger/action/policy | `update_emu()` |
-| EMU doesn't exist yet | `register_emu()` |
-| Preserving version history | `update_emu()` |
+```bash
+memrail update-emu ./updated_emu.json -w production -p my-project
+```
 
 ### Changing Lifecycle State
 
-Use `update_emu_lifecycle()` to transition an EMU between states:
+Transition EMUs between lifecycle states:
 
-```python
-# Promote EMU from shadow to active
-response = await client.update_emu_lifecycle(
-    emu_key="vip_escalation",
-    state="active",  # draft, shadow, canary, active, archived
-    workspace="production",
-    project="support"
-)
+```bash
+# Promote to active
+memrail change-state vip_escalation active -w production -p support
+
+# Set to shadow mode (evaluate but don't execute)
+memrail change-state vip_escalation shadow -w production -p support
+
+# Temporarily disable
+memrail change-state vip_escalation inactive -w production -p support
+
+# Archive permanently
+memrail change-state vip_escalation archived -w production -p support --force
 ```
 
-**Lifecycle progression**: `draft` -> `shadow` -> `canary` -> `active` -> `archived`
+**Lifecycle progression**: `draft` → `shadow` → `canary` → `active` → `archived`
 
-### Registration with Full Policy
+Or set the target state when applying new EMUs:
 
-```python
-response = await client.register_emu(
-    emu_key="vip_escalation",
-    trigger="state.customer.tier == 'vip' AND state.ticket.priority == 'high'",
-    action={
-        "type": "tool_call",
-        "intent": "ESCALATE_TO_VIP_TEAM",
-        "tool": {
-            "tool_id": "zendesk_escalator",
-            "version": "2.1.0",
-            "args": {
-                "queue": "vip-support",
-                "priority": "critical"
-            }
-        }
-    },
-    policy={
-        "mode": "auto",
-        "priority": 9,
-        "cooldown": {
-            "seconds": 7200,
-            "gate": "activation"
-        },
-        "idempotency": {
-            "enabled": True,
-            "scope": ["customer.id", "ticket.id"]
-        },
-        "exclusion_groups": ["escalation_actions"]
-    },
-    expected_utility=0.95,
-    confidence=0.88,
-    decision_point="triage",  # Scope to triage decision point
-    workspace="production",
-    project="support"
-)
+```bash
+# Apply all new EMUs directly as active
+memrail emu-apply ./emus/ --yes --target-state active
+
+# Apply new EMUs as shadow (for testing)
+memrail emu-apply ./emus/ --yes --target-state shadow
+```
+
+### Archiving EMUs
+
+```bash
+# Archive a specific EMU
+memrail archive vip_escalation -w production -p support
+
+# Archive all EMUs in project (with confirmation)
+memrail archive -w production -p support
+
+# Archive without confirmation
+memrail archive -w production -p support --force
+```
+
+### Listing & Inspecting EMUs
+
+```bash
+# List all EMUs in workspace/project
+memrail list-emus -w production -p my-project
+
+# Get details of a specific EMU
+memrail get-emu vip_escalation -w production -p support
+```
+
+### Versioning
+
+EMUs are versioned automatically. Each update via `emu-apply` or `update-emu` increments the version while preserving history:
+
+```bash
+# Initial apply creates v1
+memrail emu-apply ./emus/ --yes -w production -p support
+
+# Edit emus.jsonl (modify trigger)
+# Re-apply creates v2 (same key, updated trigger)
+memrail emu-apply ./emus/ --yes -w production -p support
+```
+
+### EMU Definition with Full Policy
+
+Example JSONL entry with all policy fields:
+
+```json
+{
+  "emu_key": "vip_escalation",
+  "trigger": "state.customer.tier == 'vip' AND state.ticket.priority == 'high'",
+  "action": {
+    "type": "tool_call",
+    "intent": "ESCALATE_TO_VIP_TEAM",
+    "tool": {
+      "tool_id": "zendesk_escalator",
+      "version": "2.1.0",
+      "args": { "queue": "vip-support", "priority": "critical" }
+    }
+  },
+  "policy": {
+    "mode": "auto",
+    "priority": 9,
+    "cooldown": { "seconds": 7200, "gate": "activation" },
+    "idempotency": { "enabled": true, "scope": ["customer.id", "ticket.id"] },
+    "exclusion_groups": ["escalation_actions"]
+  },
+  "expected_utility": 0.95,
+  "confidence": 0.88,
+  "decision_point": "triage",
+  "intent": "Escalate VIP customer tickets to specialist queue"
+}
 ```
 
 ### Action Types
 
 #### tool_call
 
-```python
-action={
-    "type": "tool_call",
-    "intent": "SEND_EMAIL",
-    "tool": {
-        "tool_id": "mailer",
-        "version": "1.0.0",
-        "args": {
-            "to": "{{user.email}}",
-            "template": "welcome"
-        }
-    }
+```json
+{
+  "type": "tool_call",
+  "intent": "SEND_EMAIL",
+  "tool": {
+    "tool_id": "mailer",
+    "version": "1.0.0",
+    "args": { "to": "{{user.email}}", "template": "welcome" }
+  }
 }
 ```
 
 #### decision_prompt
 
-```python
-action={
-    "type": "decision_prompt",
-    "message": "High-risk transaction from {{user.id}}. Approve?",
-    "options": [
-        {"id": "approve", "label": "Approve Transaction"},
-        {"id": "decline", "label": "Decline Transaction"},
-        {"id": "review", "label": "Manual Review"}
-    ]
+```json
+{
+  "type": "decision_prompt",
+  "message": "High-risk transaction from {{user.id}}. Approve?",
+  "options": [
+    {"id": "approve", "label": "Approve Transaction"},
+    {"id": "decline", "label": "Decline Transaction"},
+    {"id": "review", "label": "Manual Review"}
+  ]
 }
 ```
 
 #### route
 
-```python
-action={
-    "type": "route",
-    "destination": "spanish_support_queue",
-    "metadata": {
-        "language": "spanish",
-        "priority": "standard"
-    }
+```json
+{
+  "type": "route",
+  "destination": "spanish_support_queue",
+  "metadata": { "language": "spanish", "priority": "standard" }
 }
 ```
 
 #### context_directive
 
-```python
-action={
-    "type": "context_directive",
-    "directive": "Customer is VIP tier. Follow escalation protocol per KB #4521"
+```json
+{
+  "type": "context_directive",
+  "directive": "Customer is VIP tier. Follow escalation protocol per KB #4521"
 }
-```
-
-### Versioning
-
-```python
-# Register v1
-response_v1 = await client.register_emu(
-    emu_key="lead_scorer",
-    trigger="state.lead.source == 'website'",
-    ...
-)
-print(f"Version: {response_v1['version']}")  # 1
-
-# Register v2 (same key, new trigger)
-response_v2 = await client.register_emu(
-    emu_key="lead_scorer",  # Same key!
-    trigger="state.lead.source == 'website' AND state.lead.company_size >= 100",
-    ...
-)
-print(f"Version: {response_v2['version']}")  # 2
 ```
 
 ## Invoking the Engine
@@ -498,7 +523,7 @@ print(f"Version: {response_v2['version']}")  # 2
 ### Basic Invocation
 
 ```python
-from ami.atoms import state, tag
+from memrail.atoms import state, tag
 
 async with AsyncAMIClient() as client:
     response = await client.decide(
@@ -524,7 +549,7 @@ async with AsyncAMIClient() as client:
 When you have complex nested data structures, use the `atoms_from_dict` helper to automatically flatten them:
 
 ```python
-from ami.atoms import state, tag, atoms_from_dict
+from memrail.atoms import state, tag, atoms_from_dict
 
 # Complex nested data from your application
 user_data = {
@@ -587,7 +612,7 @@ atoms_from_dict(
 ### With Options
 
 ```python
-from ami.models import InvokeOptions
+from memrail.models import InvokeOptions
 
 response = await client.decide(
     context=[...],
@@ -604,7 +629,7 @@ response = await client.decide(
 ### With Tracing
 
 ```python
-from ami.models import TraceOptions
+from memrail.models import TraceOptions
 
 response = await client.decide(
     context=[...],
@@ -666,7 +691,7 @@ if response2.idempotency and response2.idempotency.applied:
 ### Response Handling
 
 ```python
-from ami.models import InvokeResponse, SelectedItem
+from memrail.models import InvokeResponse, SelectedItem
 
 response: InvokeResponse = await client.decide(context=[...])
 
@@ -721,7 +746,7 @@ async with AsyncAMIClient() as client:
 ### Batch Event Ingestion
 
 ```python
-from ami.models import EventInput
+from memrail.models import EventInput
 
 events = [
     EventInput(
@@ -802,8 +827,8 @@ async def consume_events():
 ### Workflow 1: Support Ticket Automation
 
 ```python
-from ami import AsyncAMIClient
-from ami.atoms import atoms_from_dict, tag, event
+from memrail import AsyncAMIClient
+from memrail.atoms import atoms_from_dict, tag, event
 from datetime import datetime, timezone
 
 async def handle_ticket_created(ticket):
@@ -870,7 +895,7 @@ async def execute_tool(tool_spec):
 ### Workflow 2: User Onboarding
 
 ```python
-from ami.atoms import atoms_from_dict, tag
+from memrail.atoms import atoms_from_dict, tag
 
 async def check_user_onboarding(user_id):
     # Fetch user data
@@ -985,19 +1010,17 @@ if response.trace:
 
 ### Shadow Mode Testing
 
-Register EMU in shadow mode for evaluation without execution:
+Deploy an EMU in shadow mode for evaluation without execution:
+
+```bash
+# Apply EMU in shadow state (evaluates but doesn't execute)
+memrail emu-apply ./emus/ --yes --target-state shadow -w production -p support
+```
+
+Then monitor evaluation via tracing:
 
 ```python
-# Register in shadow mode
-await client.register_emu(
-    emu_key="new_feature",
-    trigger="...",
-    state="shadow",  # Evaluate but don't execute
-    workspace="production",
-    project="support"
-)
-
-# Monitor evaluation (via tracing)
+# Monitor shadow EMU evaluation
 response = await client.decide(
     context=[...],
     trace=TraceOptions(enable=True),
@@ -1011,12 +1034,19 @@ for emu in response.trace.evaluated_emus:
         print(f"Shadow EMU matched: {emu.trigger_result}")
 ```
 
+When ready to promote:
+
+```bash
+# Promote from shadow to active
+memrail change-state new_feature active -w production -p support
+```
+
 ### Unit Testing
 
 ```python
 import pytest
-from ami import AsyncAMIClient
-from ami.atoms import state, tag
+from memrail import AsyncAMIClient
+from memrail.atoms import state, tag
 
 @pytest.mark.asyncio
 async def test_vip_escalation_fires():
@@ -1061,7 +1091,7 @@ async def test_vip_escalation_does_not_fire_for_standard():
 ### Common Errors
 
 ```python
-from ami.errors import (
+from memrail.errors import (
     AMIBadRequest,       # Invalid request (e.g., bad DSL syntax)
     AMINotFound,         # Resource not found (workspace, project, EMU)
     AMIUnauthorized,     # Invalid API key
@@ -1072,14 +1102,14 @@ from ami.errors import (
 )
 
 try:
-    response = await client.register_emu(
-        emu_key="test_emu",
-        trigger="INVALID DSL SYNTAX",
-        ...
+    response = await client.decide(
+        context=[state("user.id", "U-123")],
+        workspace="production",
+        project="support"
     )
 except AMIBadRequest as e:
     print(f"Bad request: {e}")
-    # Handle invalid DSL
+    # Handle invalid request
 except AMINotFound as e:
     print(f"Not found: {e}")
     # Handle missing workspace/project
@@ -1094,7 +1124,7 @@ except AMIError as e:
 ### Retry Logic
 
 ```python
-from ami.errors import AMIServerError
+from memrail.errors import AMIServerError
 import asyncio
 
 async def decide_with_retry(client, context, max_retries=3):
@@ -1110,105 +1140,37 @@ async def decide_with_retry(client, context, max_retries=3):
             await asyncio.sleep(wait_time)
 ```
 
-### Validation Before Registration
+### Validation Before Deployment
 
-```python
-from ami.validation import validate_trigger_dsl
-
-try:
-    # Validate DSL before registering
-    validate_trigger_dsl("state.user.tier == 'premium' AND event.user.login.success IN 'PT24H'")
-
-    # DSL is valid, proceed with registration
-    await client.register_emu(...)
-except Exception as e:
-    print(f"Invalid DSL: {e}")
-```
-
-## CLI Commands
-
-The `ami` CLI provides commands for EMU and tool management.
-
-### Complete Command Reference
-
-| Command | Description |
-|---------|-------------|
-| **IaC Sync** | |
-| `memrail emu-pull` | Export remote EMUs to local JSONL files |
-| `memrail emu-plan` | Show diff between local and remote (like `terraform plan`) |
-| `memrail emu-apply` | Push local changes to remote (like `terraform apply`) |
-| `memrail emu-diff` | Show detailed diff for a specific EMU |
-| `memrail emu-validate` | Validate local JSONL files against API rules |
-| **EMU Management** | |
-| `memrail list-emus` | List EMUs in workspace/project |
-| `memrail change-state` | Change EMU lifecycle state (draft/shadow/canary/active/archived) |
-| `memrail archive` | Archive one or all EMUs |
-| `memrail register-emu` | Register a single EMU (prefer `emu-apply` for production) |
-| **Tool Management** | |
-| `memrail tool-register` | Upload tool definitions from a Python file |
-| `memrail tool-list` | List registered tools |
-| **Passthrough** | |
-| `memrail exec <cmd>` | Run any `ami` CLI command directly |
-
-### IaC-Style EMU Sync (Primary Workflow)
-
-#### Workflow Example
+Use the CLI to validate EMUs before deploying:
 
 ```bash
-# 1. Pull existing EMUs from remote to local JSONL
-memrail emu-pull ./emus/ -w production -p my-project
+# Local DSL syntax validation (no API call)
+memrail emu-plan ./emus/ --validate-only
 
-# 2. Edit local JSONL files (add, modify, delete EMUs)
-# Creates: ./emus/emus.jsonl and ./emus/.emu.lock.jsonl
-
-# 3. See what would change (dry-run)
-memrail emu-plan ./emus/
-
-# 4. Apply changes (register new, update modified, archive deleted)
-memrail emu-apply ./emus/ --yes
+# Server-side ASR validation (checks reachability, schema, etc.)
+memrail emu-validate -w production -p my-project
 ```
 
-#### JSONL File Format
+## Tool Management
 
-```jsonl
-{"emu_key":"vip_escalation","trigger":"state.customer.tier == 'vip'","action":{"type":"tool_call","intent":"ESCALATE_VIP","tool":{"tool_id":"escalate","version":"1.0.0"}},"policy":{"cooldown":{"seconds":3600,"gate":"ack"}},"expected_utility":0.9,"confidence":0.85,"intent":"Escalate VIP customer issues"}
-{"emu_key":"welcome_user","trigger":"state.user.is_new == true","action":{"type":"tool_call","intent":"SEND_WELCOME","tool":{"tool_id":"mailer","version":"1.0.0"}},"expected_utility":0.8,"confidence":0.9,"intent":"Send welcome email to new users"}
-```
-
-#### Lock File
-
-The `.emu.lock.jsonl` file tracks deployed state with content hashes for intelligent diffing:
-- **New EMUs**: Local file has EMU not in remote -> `register_emu()`
-- **Modified EMUs**: Content hash differs -> `update_emu()`
-- **Deleted EMUs**: In lock file but removed locally -> `update_emu_lifecycle(state="archived")`
-
-### Basic EMU Commands
+Register and manage tool definitions used by EMU actions:
 
 ```bash
-# List EMUs
-memrail list-emus -w production -p my-project
+# Discover tools in source files (regex scan)
+memrail tool-list --path ./src/
 
-# Change lifecycle state
-memrail change-state my.emu.key active -w production -p my-project
-memrail change-state my.emu.key shadow  # For testing
-memrail change-state my.emu.key archived  # Retire
+# Discover tools via import (reads real schemas)
+memrail tool-list --path ./src/ --import
 
-# Archive EMUs
-ami archive my.emu.key  # Archive specific EMU
-ami archive             # Archive all EMUs in project (with confirmation)
-ami archive --force     # Skip confirmation
-```
+# Register tools with the server
+memrail tool-register --path ./src/ --import
 
-### Passthrough to AMI CLI
+# List tools registered on server
+memrail tool-list-server
 
-For less common operations, use the `exec` passthrough:
-
-```bash
-# Run any ami CLI command
-memrail exec list-workspaces
-memrail exec get-workspace production
-memrail exec tool-list
-memrail exec validate --project my_project
+# Check that EMU actions can reach their registered tools
+memrail action-connectivity -w production -p my-project
 ```
 
 ---
@@ -1241,7 +1203,26 @@ memrail purge-workspace development --yes --json
 
 Validate EMUs to check trigger reachability, action variable placeholders, and get remediation suggestions. This is the primary debugging tool for identifying what needs to be fixed in your EMUs or registered tools.
 
-### Single EMU Validation
+### CLI Validation (Recommended)
+
+```bash
+# Validate all EMUs in a workspace (server-side ASR checks)
+memrail emu-validate -w production -p my-project
+
+# Validate during plan (local DSL syntax check)
+memrail emu-plan ./emus/ --validate-only
+
+# Validate during apply (server-side, post-deploy)
+memrail emu-apply ./emus/ --yes -V
+
+# JSON output for CI/CD
+memrail emu-validate -w production -p my-project --json | jq '.reports[] | select(.passed == false)'
+
+# Exit code 1 if any EMU has severity=error (useful for CI gates)
+memrail emu-validate -w production -p api || echo "Validation errors found"
+```
+
+### SDK Validation (Programmatic)
 
 ```python
 # Validate a single EMU
@@ -1290,37 +1271,7 @@ PUT  /v1/.../emus/{key}?validate=true  # Inline validation on update
 Both GET endpoints accept `X-AMI-Workspace` header to scope validation.
 The `?validate=true` query param on POST/PUT returns a `validation` field in the response.
 
-### Agent Validation Workflow
-
-The recommended way for AI agents to get validation feedback during EMU deployment:
-
-#### 1. IaC with Validation (Primary Workflow)
-
-```bash
-# Edit EMUs in JSONL
-memrail emu-plan ./emus/ --validate    # Preview changes + validation status for existing EMUs
-memrail emu-apply ./emus/ --validate   # Apply + get server-side ASR validation feedback
-memrail emu-validate -w prod -p api    # On-demand health audit for all workspace EMUs
-```
-
-#### 2. SDK with Inline Validation
-
-```python
-# Register with inline validation
-result = client.register_emu(
-    emu_key="welcome-email",
-    trigger='state("user.status", "verified")',
-    action={"type": "tool_call", "tool": {"tool_id": "mailer"}},
-    validate=True,  # Returns validation report in response
-)
-if result.get("validation"):
-    report = result["validation"]
-    if not report["passed"]:
-        for w in report["warnings"]:
-            print(f"  {w['code']}: {w['message']}")
-```
-
-#### 3. Warning Code Reference
+### Warning Code Reference
 
 | Code | Meaning | Agent Action |
 |------|---------|-------------|
@@ -1332,37 +1283,27 @@ if result.get("validation"):
 | `WARN-ACTION-PLACEHOLDER-NEVER-SEEN` | Action template refs unobserved atom | Ensure atom is emitted |
 | `WARN-POLICY-GAP` | Missing cooldown/idempotency | Add policy fields for auto-mode EMUs |
 
-#### 4. Iterative Fix Loop
+### Iterative Fix Loop
 
 ```
-Edit JSONL → memrail emu-apply --validate → read warnings → fix JSONL → repeat until clean
-```
-
-#### 5. Bulk Health Check
-
-```bash
-# Filter failing EMUs in CI/CD
-memrail emu-validate -w production -p api --json | jq '.reports[] | select(.passed == false)'
-
-# Exit code 1 if any EMU has severity=error (useful for CI gates)
-memrail emu-validate -w production -p api || echo "Validation errors found"
+Edit JSONL → memrail emu-apply --yes -V → read warnings → fix JSONL → repeat until clean
 ```
 
 ---
 
 ## Best Practices
 
-1. **Use context manager**: Always use `async with` for automatic resource cleanup
-2. **Enable tracing in development**: Use `trace=True` to debug trigger evaluation
-3. **Test with dry_run**: Test triggers without side effects using `dry_run=True`
-4. **Handle errors gracefully**: Catch specific exception types
-5. **Document ATOM dependencies**: Clearly document what atoms each EMU needs
-6. **Validate DSL early**: Validate triggers before registration
-7. **Monitor invocation performance**: Track `processing_time_ms` in responses
-8. **Use idempotency for critical operations**: Prevent duplicate actions with idempotency keys
-9. **Test in shadow mode**: Evaluate new EMUs without executing actions
-10. **Version incrementally**: Start with simple triggers, refine iteratively
-11. **Use IaC sync workflow**: Prefer `emu-pull/plan/apply` for production deployments
-12. **Commit lock files**: Track `.emu.lock.jsonl` in version control for team coordination
+1. **Use IaC sync workflow**: Prefer `emu-pull/plan/apply` for all EMU management
+2. **Commit lock files**: Track `.emu.lock.jsonl` in version control for team coordination
+3. **Validate before deploying**: Use `memrail emu-plan --validate-only` and `memrail emu-validate`
+4. **Start in shadow mode**: Deploy new EMUs with `--target-state shadow`, promote after testing
+5. **Use context manager**: Always use `async with` for automatic resource cleanup
+6. **Enable tracing in development**: Use `trace=True` to debug trigger evaluation
+7. **Test with dry_run**: Test triggers without side effects using `dry_run=True`
+8. **Handle errors gracefully**: Catch specific exception types
+9. **Document ATOM dependencies**: Clearly document what atoms each EMU needs
+10. **Use idempotency for critical operations**: Prevent duplicate actions with idempotency keys
+11. **Monitor invocation performance**: Track `processing_time_ms` in responses
+12. **Register tools first**: Use `memrail tool-register` before deploying EMUs that reference tools
 
 ---

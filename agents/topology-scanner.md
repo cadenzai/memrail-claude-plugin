@@ -33,8 +33,8 @@ QA identified missing topology (new decision points, gaps in coverage) and route
 ## SDK Detection
 
 Before scanning, detect the target SDK:
-- Check `package.json` for `@memrail/ami-sdk` → TypeScript project
-- Check `pyproject.toml` or `requirements.txt` for `ami-sdk` → Python project
+- Check `package.json` for `@memrail/sdk` → TypeScript project
+- Check `pyproject.toml` or `requirements.txt` for `memrail` → Python project
 - Reference `05-sdk-integration-python.md` or `05b-sdk-integration-typescript.md` accordingly
 
 ## Your Single Responsibility
@@ -179,7 +179,7 @@ Glob(pattern="**/.emu.lock.jsonl")
 Grep(pattern="ami.invoke|client.invoke|AsyncAMIClient", glob="**/*.py")
 
 # Check TypeScript/JavaScript projects
-Grep(pattern="AMIClient|@memrail/ami-sdk|client.decide", glob="**/*.{ts,js}")
+Grep(pattern="AMIClient|@memrail/sdk|client.decide", glob="**/*.{ts,js}")
 ```
 
 ### Step 3: Find Decision Points

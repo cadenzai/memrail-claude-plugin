@@ -36,7 +36,7 @@ Register tools using decorators (Python) or method calls (TypeScript):
 ### Decorator-Based Registration (Python)
 
 ```python
-from ami.tools import ToolRegistry, ToolDefinition
+from memrail.tools import ToolRegistry, ToolDefinition
 
 registry = ToolRegistry()
 
@@ -82,7 +82,7 @@ async def post_slack(channel: str, message: str):
 ### Method-Based Registration (TypeScript)
 
 ```typescript
-import { ToolRegistry } from '@memrail/ami-sdk';
+import { ToolRegistry } from '@memrail/sdk';
 
 const registry = new ToolRegistry();
 
@@ -200,7 +200,7 @@ The `memrail tool-register` CLI command discovers and uploads tool definitions t
 
 ```python
 # emus/tools.py — standalone file with no app dependencies
-from ami.tools import ToolRegistry
+from memrail.tools import ToolRegistry
 
 registry = ToolRegistry(server_name="my-tools")
 
@@ -225,7 +225,7 @@ Key points:
 
 ```python
 # WRONG — CLI imports module but never calls register(), so ToolRegistry is empty
-from ami.tools import ToolRegistry
+from memrail.tools import ToolRegistry
 
 def register(client):
     registry = ToolRegistry()
@@ -295,8 +295,8 @@ The `ActionExecutor` handles lifecycle-aware execution:
 
 **Python:**
 ```python
-from ami.tools import ActionExecutor, ExecutorConfig
-from ami.tools.models import MissingToolBehavior, ShadowMode
+from memrail.tools import ActionExecutor, ExecutorConfig
+from memrail.tools.models import MissingToolBehavior, ShadowMode
 
 executor = ActionExecutor(
     registry=registry,
@@ -312,7 +312,7 @@ executor = ActionExecutor(
 
 **TypeScript:**
 ```typescript
-import { ActionExecutor, ShadowMode, MissingToolBehavior } from '@memrail/ami-sdk';
+import { ActionExecutor, ShadowMode, MissingToolBehavior } from '@memrail/sdk';
 
 const executor = new ActionExecutor({
     registry,
@@ -356,9 +356,9 @@ results = await executor.execute_all(decisions)
 The SDK provides a combined `invoke_and_execute()` method that handles invocation, execution, and acknowledgment in one call:
 
 ```python
-from ami import AsyncAMIClient
-from ami.atoms import state, tag, StateObject
-from ami.tools import ToolRegistry, ActionExecutor
+from memrail import AsyncAMIClient
+from memrail.atoms import state, tag, StateObject
+from memrail.tools import ToolRegistry, ActionExecutor
 
 # Setup
 registry = ToolRegistry()
@@ -411,8 +411,8 @@ async with AsyncAMIClient(
 
 **TypeScript equivalent:**
 ```typescript
-import { AMIClient, state, tag, StateObject } from '@memrail/ami-sdk';
-import { ToolRegistry, ActionExecutor } from '@memrail/ami-sdk';
+import { AMIClient, state, tag, StateObject } from '@memrail/sdk';
+import { ToolRegistry, ActionExecutor } from '@memrail/sdk';
 
 const registry = new ToolRegistry();
 
@@ -506,8 +506,8 @@ Shadow EMUs are returned in invoke responses with `lifecycle_state: "shadow"`. T
 ### Configuration
 
 ```python
-from ami.tools import ActionExecutor, ExecutorConfig
-from ami.tools.models import ShadowMode
+from memrail.tools import ActionExecutor, ExecutorConfig
+from memrail.tools.models import ShadowMode
 
 # Configure shadow behavior
 executor = ActionExecutor(
@@ -576,7 +576,7 @@ Canary EMUs execute on a percentage of invocations with sticky session support:
 The same user always gets the same canary decision:
 
 ```python
-from ami.tools import make_sticky_decider
+from memrail.tools import make_sticky_decider
 
 # Create deterministic decider
 decider = make_sticky_decider(
@@ -653,7 +653,7 @@ CLOSED ──[failures >= threshold]──> OPEN
 
 **Python:**
 ```python
-from ami.tools import CircuitBreakerOpen
+from memrail.tools import CircuitBreakerOpen
 
 try:
     result = await executor.execute(decision)
@@ -665,7 +665,7 @@ except CircuitBreakerOpen as e:
 
 **TypeScript:**
 ```typescript
-import { CircuitOpenError } from '@memrail/ami-sdk';
+import { CircuitOpenError } from '@memrail/sdk';
 
 try {
     const result = await executor.execute(decision);
@@ -702,7 +702,7 @@ async def send_email(...):
 For distributed systems, use Redis-backed rate limiting:
 
 ```python
-from ami.tools import ActionExecutor, RedisRateLimitBackend
+from memrail.tools import ActionExecutor, RedisRateLimitBackend
 import redis.asyncio as redis
 
 redis_client = redis.from_url("redis://localhost:6379")
@@ -717,7 +717,7 @@ executor = ActionExecutor(
 
 **Python:**
 ```python
-from ami.tools import RateLimitExceeded
+from memrail.tools import RateLimitExceeded
 
 try:
     result = await executor.execute(decision)
@@ -729,7 +729,7 @@ except RateLimitExceeded as e:
 
 **TypeScript:**
 ```typescript
-import { RateLimitExceeded } from '@memrail/ami-sdk';
+import { RateLimitExceeded } from '@memrail/sdk';
 
 try {
     const result = await executor.execute(decision);
@@ -750,7 +750,7 @@ Track execution metrics for monitoring and shadow comparison:
 ### Setup
 
 ```python
-from ami.tools import MetricsCollector
+from memrail.tools import MetricsCollector
 
 collector = MetricsCollector()
 executor = ActionExecutor(
@@ -805,10 +805,10 @@ from prometheus_client import Counter, Histogram
 ## Complete Example
 
 ```python
-from ami import AsyncAMIClient
-from ami.atoms import state, tag, StateObject
-from ami.tools import ToolRegistry, ActionExecutor, ExecutorConfig, MetricsCollector
-from ami.tools.models import ShadowMode, MissingToolBehavior
+from memrail import AsyncAMIClient
+from memrail.atoms import state, tag, StateObject
+from memrail.tools import ToolRegistry, ActionExecutor, ExecutorConfig, MetricsCollector
+from memrail.tools.models import ShadowMode, MissingToolBehavior
 
 # 1. Setup registry
 registry = ToolRegistry()
