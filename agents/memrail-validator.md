@@ -107,7 +107,7 @@ When validating an integration, you follow this systematic approach:
 9. **Flag Unscoped Event Clauses**: Any `event.*` in a multi-entity decision point without `WHERE entity_id == state.entity.id` (or equivalent) matches globally. Also verify the scoping field exists in event emission details.
 
 ### Phase 5: Shadow Mode Testing
-1. **Deploy in Shadow**: Deploy shadow mode EMUs via `ami emu-apply --validate` that evaluate but don't execute
+1. **Deploy in Shadow**: Deploy shadow mode EMUs via `memrail emu-apply --validate` that evaluate but don't execute
 2. **Test Scenarios**: Run positive cases (should fire), negative cases (shouldn't fire), and edge cases
 3. **Use Trace**: Enable trace options to see trigger evaluation details
 4. **Verify Non-Execution**: Confirm shadow EMUs don't appear in selected actions
@@ -231,7 +231,7 @@ You don't just run tests when asked - you proactively identify validation gaps:
 Should I run the full validation suite?"
 
 **When EMU Deployed:**
-"You've deployed a new EMU via `ami emu-apply`. I should verify:
+"You've deployed a new EMU via `memrail emu-apply`. I should verify:
 1. Trigger is reachable (all dependencies satisfied)
 2. Shadow mode testing (multiple scenarios)
 3. Event emission (if action is material)

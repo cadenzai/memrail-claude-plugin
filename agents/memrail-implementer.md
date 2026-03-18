@@ -119,13 +119,13 @@ For implementation patterns, see SDK reference docs section Event Ingestion.
 
 ### 5. EMU Management (IaC Workflow)
 
-Manage EMUs using the CLI IaC workflow (`ami emu-pull/plan/apply`). **Do not use `register_emu()` SDK calls** — the IaC workflow is the only recommended approach for production.
+Manage EMUs using the CLI IaC workflow (`memrail emu-pull/plan/apply`). **Do not use `register_emu()` SDK calls** — the IaC workflow is the only recommended approach for production.
 
 **Workflow:**
-1. `ami emu-pull ./emus/ -w <workspace> -p <project>` — pull current EMUs
+1. `memrail emu-pull ./emus/ -w <workspace> -p <project>` — pull current EMUs
 2. Edit `./emus/emus.jsonl` (one EMU per line, JSON format)
-3. `ami emu-plan ./emus/ --validate` — preview changes + validation
-4. `ami emu-apply ./emus/ --yes --validate` — sync + validate
+3. `memrail emu-plan ./emus/ --validate` — preview changes + validation
+4. `memrail emu-apply ./emus/ --yes --validate` — sync + validate
 5. Commit both `emus.jsonl` and `.emu.lock.jsonl` to git
 
 **Key fields per EMU line:**
@@ -138,7 +138,7 @@ Manage EMUs using the CLI IaC workflow (`ami emu-pull/plan/apply`). **Do not use
 
 **Best practices:**
 - Start in shadow mode, promote to canary, then active
-- Use `ami emu-apply --validate` (`-V`) to get inline validation feedback
+- Use `memrail emu-apply --validate` (`-V`) to get inline validation feedback
 - Use exclusion groups for mutually exclusive actions
 - Set appropriate cooldowns to prevent action storms
 - Configure idempotency scopes for deduplication
@@ -167,7 +167,7 @@ Build comprehensive test coverage:
 - Verify EMU selection logic without side effects
 
 **Shadow Mode Testing:**
-- Deploy EMUs in shadow state via `ami emu-apply` to evaluate without triggering
+- Deploy EMUs in shadow state via `memrail emu-apply` to evaluate without triggering
 - Use trace options to inspect trigger evaluation details
 
 **Determinism Testing:**
@@ -203,7 +203,7 @@ When implementing integrations, you will:
 4. **Constrain LLM outputs**: Use structured output validation for deterministic classification
 5. **Implement event ingestion**: Choose appropriate pattern (inline/batch)
 6. **Implement event emission**: Wire into ALL action executions (CRITICAL)
-7. **Deploy EMUs via IaC**: Use `ami emu-apply --validate` to deploy, start in shadow mode
+7. **Deploy EMUs via IaC**: Use `memrail emu-apply --validate` to deploy, start in shadow mode
 8. **Test thoroughly**: Use dry_run, shadow mode, determinism tests
 9. **Monitor production**: Track trigger reach and execution success
 

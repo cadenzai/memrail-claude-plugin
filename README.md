@@ -1,6 +1,6 @@
 # Memrail Claude Code Plugin
 
-Expert system for SOMA AMI - decsision infrastructure for consequential actions.
+Expert system for Memrail SOMA AMI - decsision infrastructure for consequential actions.
 
 ## What's Included
 

@@ -270,16 +270,16 @@ EMUs are managed via JSONL files using the IaC sync workflow:
 
 ```bash
 # Pull existing EMUs from remote
-ami emu-pull ./emus/ -w production -p my-project
+memrail emu-pull ./emus/ -w production -p my-project
 
 # Edit ./emus/emus.jsonl (one EMU per line)
 # Add, modify, or delete EMUs
 
 # Preview changes (like terraform plan)
-ami emu-plan ./emus/
+memrail emu-plan ./emus/
 
 # Apply changes to remote
-ami emu-apply ./emus/ --yes
+memrail emu-apply ./emus/ --yes
 ```
 
 **JSONL format:**
@@ -1134,21 +1134,21 @@ The `ami` CLI provides commands for EMU and tool management.
 | Command | Description |
 |---------|-------------|
 | **IaC Sync** | |
-| `ami emu-pull` | Export remote EMUs to local JSONL files |
-| `ami emu-plan` | Show diff between local and remote (like `terraform plan`) |
-| `ami emu-apply` | Push local changes to remote (like `terraform apply`) |
-| `ami emu-diff` | Show detailed diff for a specific EMU |
-| `ami emu-validate` | Validate local JSONL files against API rules |
+| `memrail emu-pull` | Export remote EMUs to local JSONL files |
+| `memrail emu-plan` | Show diff between local and remote (like `terraform plan`) |
+| `memrail emu-apply` | Push local changes to remote (like `terraform apply`) |
+| `memrail emu-diff` | Show detailed diff for a specific EMU |
+| `memrail emu-validate` | Validate local JSONL files against API rules |
 | **EMU Management** | |
-| `ami list-emus` | List EMUs in workspace/project |
-| `ami change-state` | Change EMU lifecycle state (draft/shadow/canary/active/archived) |
-| `ami archive` | Archive one or all EMUs |
-| `ami register-emu` | Register a single EMU (prefer `emu-apply` for production) |
+| `memrail list-emus` | List EMUs in workspace/project |
+| `memrail change-state` | Change EMU lifecycle state (draft/shadow/canary/active/archived) |
+| `memrail archive` | Archive one or all EMUs |
+| `memrail register-emu` | Register a single EMU (prefer `emu-apply` for production) |
 | **Tool Management** | |
-| `ami tool-register` | Upload tool definitions from a Python file |
-| `ami tool-list` | List registered tools |
+| `memrail tool-register` | Upload tool definitions from a Python file |
+| `memrail tool-list` | List registered tools |
 | **Passthrough** | |
-| `ami exec <cmd>` | Run any `ami` CLI command directly |
+| `memrail exec <cmd>` | Run any `ami` CLI command directly |
 
 ### IaC-Style EMU Sync (Primary Workflow)
 
@@ -1156,16 +1156,16 @@ The `ami` CLI provides commands for EMU and tool management.
 
 ```bash
 # 1. Pull existing EMUs from remote to local JSONL
-ami emu-pull ./emus/ -w production -p my-project
+memrail emu-pull ./emus/ -w production -p my-project
 
 # 2. Edit local JSONL files (add, modify, delete EMUs)
 # Creates: ./emus/emus.jsonl and ./emus/.emu.lock.jsonl
 
 # 3. See what would change (dry-run)
-ami emu-plan ./emus/
+memrail emu-plan ./emus/
 
 # 4. Apply changes (register new, update modified, archive deleted)
-ami emu-apply ./emus/ --yes
+memrail emu-apply ./emus/ --yes
 ```
 
 #### JSONL File Format
@@ -1186,12 +1186,12 @@ The `.emu.lock.jsonl` file tracks deployed state with content hashes for intelli
 
 ```bash
 # List EMUs
-ami list-emus -w production -p my-project
+memrail list-emus -w production -p my-project
 
 # Change lifecycle state
-ami change-state my.emu.key active -w production -p my-project
-ami change-state my.emu.key shadow  # For testing
-ami change-state my.emu.key archived  # Retire
+memrail change-state my.emu.key active -w production -p my-project
+memrail change-state my.emu.key shadow  # For testing
+memrail change-state my.emu.key archived  # Retire
 
 # Archive EMUs
 ami archive my.emu.key  # Archive specific EMU
@@ -1205,10 +1205,10 @@ For less common operations, use the `exec` passthrough:
 
 ```bash
 # Run any ami CLI command
-ami exec list-workspaces
-ami exec get-workspace production
-ami exec tool-list
-ami exec validate --project my_project
+memrail exec list-workspaces
+memrail exec get-workspace production
+memrail exec tool-list
+memrail exec validate --project my_project
 ```
 
 ---
@@ -1223,16 +1223,16 @@ Reset all data in a workspace without deleting the workspace itself. Useful for 
 
 ```bash
 # Purge everything (interactive confirmation)
-ami purge-workspace production
+memrail purge-workspace production
 
 # Skip confirmation (CI/CD)
-ami purge-workspace staging --yes
+memrail purge-workspace staging --yes
 
 # Selective purge
-ami purge-workspace development --targets emus,traces,events --yes
+memrail purge-workspace development --targets emus,traces,events --yes
 
 # JSON output
-ami purge-workspace development --yes --json
+memrail purge-workspace development --yes --json
 ```
 
 **Available targets:** `emus`, `traces`, `events`, `asr`, `tools`, `cooldowns`, `prompts`, `hindsight`, `decision_points`
@@ -1298,9 +1298,9 @@ The recommended way for AI agents to get validation feedback during EMU deployme
 
 ```bash
 # Edit EMUs in JSONL
-ami emu-plan ./emus/ --validate    # Preview changes + validation status for existing EMUs
-ami emu-apply ./emus/ --validate   # Apply + get server-side ASR validation feedback
-ami emu-validate -w prod -p api    # On-demand health audit for all workspace EMUs
+memrail emu-plan ./emus/ --validate    # Preview changes + validation status for existing EMUs
+memrail emu-apply ./emus/ --validate   # Apply + get server-side ASR validation feedback
+memrail emu-validate -w prod -p api    # On-demand health audit for all workspace EMUs
 ```
 
 #### 2. SDK with Inline Validation
@@ -1328,24 +1328,24 @@ if result.get("validation"):
 | `WARN-SCHEMA-MISMATCH` | Type/operator incompatibility | Fix trigger operator or atom type |
 | `WARN-LOW-REACH` | Atom stale (>7 days) | Verify pipeline is running |
 | `WARN-SEMANTIC-EQUIVALENT` | Wrong event name, similar exists | Use suggested correct name |
-| `WARN-ACTION-TOOL-NOT-FOUND` | Tool not in executor registry | Register via `ami tool-register` |
+| `WARN-ACTION-TOOL-NOT-FOUND` | Tool not in executor registry | Register via `memrail tool-register` |
 | `WARN-ACTION-PLACEHOLDER-NEVER-SEEN` | Action template refs unobserved atom | Ensure atom is emitted |
 | `WARN-POLICY-GAP` | Missing cooldown/idempotency | Add policy fields for auto-mode EMUs |
 
 #### 4. Iterative Fix Loop
 
 ```
-Edit JSONL → ami emu-apply --validate → read warnings → fix JSONL → repeat until clean
+Edit JSONL → memrail emu-apply --validate → read warnings → fix JSONL → repeat until clean
 ```
 
 #### 5. Bulk Health Check
 
 ```bash
 # Filter failing EMUs in CI/CD
-ami emu-validate -w production -p api --json | jq '.reports[] | select(.passed == false)'
+memrail emu-validate -w production -p api --json | jq '.reports[] | select(.passed == false)'
 
 # Exit code 1 if any EMU has severity=error (useful for CI gates)
-ami emu-validate -w production -p api || echo "Validation errors found"
+memrail emu-validate -w production -p api || echo "Validation errors found"
 ```
 
 ---

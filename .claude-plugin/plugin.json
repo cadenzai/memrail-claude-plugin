@@ -1,7 +1,7 @@
 {
   "name": "memrail",
-  "version": "2.0.0",
-  "description": "SOMA AMI expert system — deterministic decision engine for memory-augmented agents. Design, implement, validate, and review EMU integrations with Python and TypeScript SDK support.",
-  "author": { "name": "Memrail" },
+  "version": "2.0.1",
+  "description": "Memrail's SOMA AMI - Govern AI agents, robotics, humans and intelligent systems with deterministic rules, safe rollout, and decision traces. Design, implement, validate, and review EMU integrations with Python and TypeScript SDK support.",
+  "author": { "name": "Cadenzai, Inc." },
   "keywords": ["ami", "emu", "agents", "memory", "decision-engine"]
 }

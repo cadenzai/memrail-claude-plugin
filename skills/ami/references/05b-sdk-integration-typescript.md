@@ -235,15 +235,15 @@ EMUs are managed via JSONL files using the IaC sync workflow:
 
 ```bash
 # Pull existing EMUs from remote
-ami emu-pull ./emus/ -w production -p my-project
+memrail emu-pull ./emus/ -w production -p my-project
 
 # Edit ./emus/emus.jsonl (one EMU per line)
 
 # Preview changes (like terraform plan)
-ami emu-plan ./emus/
+memrail emu-plan ./emus/
 
 # Apply changes to remote
-ami emu-apply ./emus/ --yes
+memrail emu-apply ./emus/ --yes
 ```
 
 ### SDK Registration (Scripting/Testing Only)
@@ -750,12 +750,12 @@ The `ami` CLI is shared between both SDKs. See the [Python SDK reference](05-sdk
 
 Key commands:
 ```bash
-ami emu-pull ./emus/ -w production -p my-project    # Export EMUs
-ami emu-plan ./emus/                                  # Preview changes
-ami emu-apply ./emus/ --yes                           # Apply changes
-ami emu-validate -w prod -p api                       # Validate EMUs
-ami purge-workspace staging --yes                     # Reset workspace
-ami tool-register                                     # Upload tool definitions
+memrail emu-pull ./emus/ -w production -p my-project    # Export EMUs
+memrail emu-plan ./emus/                                  # Preview changes
+memrail emu-apply ./emus/ --yes                           # Apply changes
+memrail emu-validate -w prod -p api                       # Validate EMUs
+memrail purge-workspace staging --yes                     # Reset workspace
+memrail tool-register                                     # Upload tool definitions
 ```
 
 ## Workspace Management
@@ -764,13 +764,13 @@ ami tool-register                                     # Upload tool definitions
 
 ```bash
 # Purge everything
-ami purge-workspace production
+memrail purge-workspace production
 
 # Skip confirmation
-ami purge-workspace staging --yes
+memrail purge-workspace staging --yes
 
 # Selective purge
-ami purge-workspace development --targets emus,traces,events --yes
+memrail purge-workspace development --targets emus,traces,events --yes
 ```
 
 **Available targets:** `emus`, `traces`, `events`, `asr`, `tools`, `cooldowns`, `prompts`, `hindsight`, `decision_points`
@@ -816,7 +816,7 @@ for (const item of result.reports) {
 | `WARN-SCHEMA-MISMATCH` | Type/operator incompatibility | Fix trigger operator or atom type |
 | `WARN-LOW-REACH` | Atom stale (>7 days) | Verify pipeline is running |
 | `WARN-SEMANTIC-EQUIVALENT` | Wrong event name, similar exists | Use suggested correct name |
-| `WARN-ACTION-TOOL-NOT-FOUND` | Tool not in executor registry | Register via `ami tool-register` |
+| `WARN-ACTION-TOOL-NOT-FOUND` | Tool not in executor registry | Register via `memrail tool-register` |
 | `WARN-ACTION-PLACEHOLDER-NEVER-SEEN` | Action template refs unobserved atom | Ensure atom is emitted |
 | `WARN-POLICY-GAP` | Missing cooldown/idempotency | Add policy fields for auto-mode EMUs |
 
