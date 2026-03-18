@@ -1,10 +1,10 @@
 ---
-name: ami
+name: memrail
 description: Expert guidance on Memrail's SOMA AMI including EMU (Executable Memory Unit) design, ATOM (state/tag/event) builders, trigger DSL syntax, event ingestion, Python and TypeScript SDK integration, and trigger reachability analysis. Use when working with Memrail AMI, EMU configurations, deterministic decision systems, event-driven workflows, or when implementing memory-augmented agent systems.
 metadata:
   author: memrail
   version: "2.0"
-compatibility: Works with Python 3.8+ (ami-sdk) and Node.js 18+ (@memrail/ami-sdk). Designed for Claude Code and similar agents.
+compatibility: Works with Python 3.8+ (memrail) and Node.js 18+ (@memrail/sdk). Designed for Claude Code and similar agents.
 ---
 
 # Memrail SOMA AMI Expert Skill
@@ -132,8 +132,8 @@ Read [references/11-emu-design-heuristics.md](references/11-emu-design-heuristic
 
 **Python:**
 ```python
-from ami import AsyncAMIClient
-from ami.atoms import state, tag, atoms_from_dict
+from memrail import AsyncAMIClient
+from memrail.atoms import state, tag, atoms_from_dict
 
 async with AsyncAMIClient(
     api_key="your-api-key", org="your-org",
@@ -150,7 +150,7 @@ async with AsyncAMIClient(
 
 **TypeScript:**
 ```typescript
-import { AMIClient, state, tag, atomsFromDict } from '@memrail/ami-sdk';
+import { AMIClient, state, tag, atomsFromDict } from '@memrail/sdk';
 
 const client = new AMIClient({
     apiKey: "your-api-key", org: "your-org",
@@ -201,8 +201,8 @@ Use `decide(context=...)` (Python) or `decide({ context: [...] })` (TypeScript).
 
 ### SDK Detection
 When starting work on a project, detect which SDK is in use:
-- Check `package.json` for `@memrail/ami-sdk` → TypeScript SDK
-- Check `pyproject.toml` or `requirements.txt` for `ami-sdk` → Python SDK
+- Check `package.json` for `@memrail/sdk` → TypeScript SDK
+- Check `pyproject.toml` or `requirements.txt` for `memrail` → Python SDK
 - Reference the appropriate SDK documentation accordingly
 
 - Always use modern DSL syntax with dot notation

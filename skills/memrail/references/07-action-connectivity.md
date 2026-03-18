@@ -333,7 +333,7 @@ llm_response = await llm.generate(system_prompt=system_prompt, ...)
 ### tool_call Integration
 
 ```python
-from ami.tools import ToolRegistry, ActionExecutor
+from memrail.tools import ToolRegistry, ActionExecutor
 
 # Register executors
 registry = ToolRegistry()

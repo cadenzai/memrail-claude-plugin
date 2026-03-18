@@ -1,13 +1,13 @@
 # Memrail Claude Code Plugin
 
-Expert system for Memrail SOMA AMI - decsision infrastructure for consequential actions.
+Expert system for Memrail SOMA AMI - decision infrastructure for automated systems.
 
 ## What's Included
 
-### Skill: `ami` (invoke as `/memrail:ami`)
+### Skill: `memrail` (invoke as `/memrail:memrail`)
 Complete reference system for EMU design, ATOM builders, trigger DSL, and SDK integration.
 - 12 reference documents covering fundamentals through advanced patterns
-- Dual SDK coverage: Python (`ami-sdk`) and TypeScript (`@memrail/ami-sdk`)
+- Dual SDK coverage: Python (`memrail`) and TypeScript (`@memrail/sdk`)
 
 ### Agents
 - **topology-scanner** — Discover decision topology of a codebase (read-only analysis)
@@ -23,7 +23,7 @@ claude --plugin-dir /path/to/memrail-claude-plugin
 
 ## SDK Support
 
-| Feature | Python (`ami-sdk`) | TypeScript (`@memrail/ami-sdk`) |
+| Feature | Python (`memrail`) | TypeScript (`@memrail/sdk`) |
 |---------|-------------------|-------------------------------|
 | AsyncAMIClient | ✅ | ✅ (AMIClient) |
 | state/tag/event | ✅ | ✅ |

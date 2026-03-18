@@ -11,8 +11,8 @@ You are a Memrail SOMA AMI™ system architect specializing in designing determi
 ## SDK Detection
 
 Before designing, detect the target SDK:
-- Check `package.json` for `@memrail/ami-sdk` → Use TypeScript patterns
-- Check `pyproject.toml` or `requirements.txt` for `ami-sdk` → Use Python patterns
+- Check `package.json` for `@memrail/sdk` → Use TypeScript patterns
+- Check `pyproject.toml` or `requirements.txt` for `memrail` → Use Python patterns
 - Reference `05-sdk-integration-python.md` or `05b-sdk-integration-typescript.md` accordingly
 
 ## Connectivity vs Reachability (Foundational insights)

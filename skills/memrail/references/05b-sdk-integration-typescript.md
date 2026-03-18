@@ -29,19 +29,19 @@
 
 ```bash
 # Using npm
-npm install @memrail/ami-sdk
+npm install @memrail/sdk
 
 # Using yarn
-yarn add @memrail/ami-sdk
+yarn add @memrail/sdk
 
 # Using pnpm
-pnpm add @memrail/ami-sdk
+pnpm add @memrail/sdk
 ```
 
 ### Verify Installation
 
 ```typescript
-import { AMIClient } from '@memrail/ami-sdk';
+import { AMIClient } from '@memrail/sdk';
 console.log('AMI SDK loaded');
 ```
 
@@ -70,7 +70,7 @@ export AMI_BASE_URL="https://api.ami.example.com"  # Optional
 ```
 
 ```typescript
-import { AMIClient } from '@memrail/ami-sdk';
+import { AMIClient } from '@memrail/sdk';
 
 // Auto-loads from environment
 const client = new AMIClient();
@@ -80,7 +80,7 @@ const response = await client.decide({ context: [...] });
 #### Method 2: Explicit Configuration
 
 ```typescript
-import { AMIClient } from '@memrail/ami-sdk';
+import { AMIClient } from '@memrail/sdk';
 
 const client = new AMIClient({
     apiKey: "your-api-key",
@@ -97,7 +97,7 @@ const response = await client.decide({ context: [...] });
 #### Method 3: Configuration Object
 
 ```typescript
-import { AMIClient, AMIConfig } from '@memrail/ami-sdk';
+import { AMIClient, AMIConfig } from '@memrail/sdk';
 
 const config = AMIConfig.create({
     apiKey: "your-api-key",
@@ -146,7 +146,7 @@ ATOMs are typed facts provided to the decision engine.
 ### State ATOMs
 
 ```typescript
-import { state } from '@memrail/ami-sdk';
+import { state } from '@memrail/sdk';
 
 // Simple state
 const atoms = [
@@ -162,7 +162,7 @@ const atoms = [
 **Dict Helper** (Recommended for Complex Data):
 
 ```typescript
-import { atomsFromDict } from '@memrail/ami-sdk';
+import { atomsFromDict } from '@memrail/sdk';
 
 const user = {
     id: "U-123",
@@ -182,7 +182,7 @@ const atoms = atomsFromDict(user, "user");
 ### Tag ATOMs
 
 ```typescript
-import { tag } from '@memrail/ami-sdk';
+import { tag } from '@memrail/sdk';
 
 const atoms = [
     tag("priority", "high"),
@@ -202,7 +202,7 @@ const atoms = [
 ### Event ATOMs
 
 ```typescript
-import { event } from '@memrail/ami-sdk';
+import { event } from '@memrail/sdk';
 
 // Event with timestamp
 const atoms = [
@@ -383,7 +383,7 @@ const action = {
 ### Basic Invocation
 
 ```typescript
-import { AMIClient, state, tag } from '@memrail/ami-sdk';
+import { AMIClient, state, tag } from '@memrail/sdk';
 
 const client = new AMIClient({ /* config */ });
 
@@ -408,7 +408,7 @@ for (const item of response.selected) {
 ### Using Dict Helper for Complex Data
 
 ```typescript
-import { atomsFromDict, tag } from '@memrail/ami-sdk';
+import { atomsFromDict, tag } from '@memrail/sdk';
 
 const userData = {
     id: "U-123",
@@ -581,7 +581,7 @@ await client.emitEvents({
 ### Workflow 1: Support Ticket Automation
 
 ```typescript
-import { AMIClient, atomsFromDict, tag } from '@memrail/ami-sdk';
+import { AMIClient, atomsFromDict, tag } from '@memrail/sdk';
 
 async function handleTicketCreated(ticket: any) {
     const client = new AMIClient({ /* config */ });
@@ -645,7 +645,7 @@ for (const item of response.selected) {
 ### Unit Testing (Jest)
 
 ```typescript
-import { AMIClient, state, tag } from '@memrail/ami-sdk';
+import { AMIClient, state, tag } from '@memrail/sdk';
 
 describe('VIP Escalation EMU', () => {
     let client: AMIClient;
@@ -700,7 +700,7 @@ import {
     AMIUnprocessable,
     AMIServerError,
     AMIError
-} from '@memrail/ami-sdk';
+} from '@memrail/sdk';
 
 try {
     await client.registerEMU({
