@@ -187,9 +187,9 @@ Validation checks:
 - Extra handler parameters that aren't in schema produce warnings (errors in strict mode)
 - Return type must be `dict` or `Dict[str, Any]`
 
-### CLI Tool Registration (`ami tool-register`)
+### CLI Tool Registration (`memrail tool-register`)
 
-The `ami tool-register` CLI command discovers and uploads tool definitions to Memrail. It uses a two-phase process:
+The `memrail tool-register` CLI command discovers and uploads tool definitions to Memrail. It uses a two-phase process:
 
 1. **AST scanning** — Finds `@*.tool(...)` decorators in the source file
 2. **Module import** — Imports the file and looks for a populated `ToolRegistry` instance (variable named `registry` or `tool_registry`)
@@ -243,7 +243,7 @@ The CLI finds `@registry.tool(...)` in AST (phase 1 passes) but `registry` is lo
 
 ```bash
 # Register tools from a file
-ami tool-register --file emus/tools.py -j default -w production
+memrail tool-register --file emus/tools.py -j default -w production
 
 # Output on success:
 # Discovered 6 tools via AST scanning

@@ -41,7 +41,7 @@
 
 ```bash
 # Pull all EMUs from a workspace/project
-ami emu-pull ./emus/ -w production -p my-project
+memrail emu-pull ./emus/ -w production -p my-project
 
 # Output files created:
 # ./emus/emus.jsonl        - EMU definitions (edit this)
@@ -52,7 +52,7 @@ ami emu-pull ./emus/ -w production -p my-project
 
 ```bash
 # Show what would change (like terraform plan)
-ami emu-plan ./emus/
+memrail emu-plan ./emus/
 
 # Output example:
 # Plan: 2 to add, 1 to change, 1 to archive
@@ -68,10 +68,10 @@ ami emu-plan ./emus/
 
 ```bash
 # Apply changes (interactive confirmation)
-ami emu-apply ./emus/
+memrail emu-apply ./emus/
 
 # Apply changes (skip confirmation - for CI/CD)
-ami emu-apply ./emus/ --yes
+memrail emu-apply ./emus/ --yes
 
 # Output example:
 # Applying 4 changes...
@@ -87,7 +87,7 @@ ami emu-apply ./emus/ --yes
 
 ```bash
 # Show detailed diff for specific EMU
-ami emu-diff ./emus/ vip_escalation
+memrail emu-diff ./emus/ vip_escalation
 
 # Output shows field-by-field comparison
 ```
@@ -253,13 +253,13 @@ Each line is a complete EMU definition in JSON:
 
 2. Plan:
 ```bash
-ami emu-plan ./emus/
+memrail emu-plan ./emus/
 # + sla_breach_warning (new)
 ```
 
 3. Apply:
 ```bash
-ami emu-apply ./emus/ --yes
+memrail emu-apply ./emus/ --yes
 # [+] Created sla_breach_warning (v1)
 ```
 
@@ -272,7 +272,7 @@ ami emu-apply ./emus/ --yes
 
 2. Plan shows the diff:
 ```bash
-ami emu-plan ./emus/
+memrail emu-plan ./emus/
 # ~ vip_escalation (modified)
 #   trigger: "state.customer.tier == 'vip'" -> "state.customer.tier IN ['vip', 'enterprise']"
 #   policy.priority: 9 -> 10
@@ -281,7 +281,7 @@ ami emu-plan ./emus/
 
 3. Apply:
 ```bash
-ami emu-apply ./emus/ --yes
+memrail emu-apply ./emus/ --yes
 # [~] Updated vip_escalation (v1 -> v2)
 ```
 
@@ -291,13 +291,13 @@ ami emu-apply ./emus/ --yes
 
 2. Plan:
 ```bash
-ami emu-plan ./emus/
+memrail emu-plan ./emus/
 # - old_feature (will archive)
 ```
 
 3. Apply:
 ```bash
-ami emu-apply ./emus/ --yes
+memrail emu-apply ./emus/ --yes
 # [-] Archived old_feature
 ```
 
@@ -341,7 +341,7 @@ jobs:
         run: pip install ami-sdk
 
       - name: Plan EMU changes
-        run: ami emu-plan ./emus/ --json > plan.json
+        run: memrail emu-plan ./emus/ --json > plan.json
         env:
           AMI_API_KEY: ${{ secrets.AMI_API_KEY }}
 
@@ -361,7 +361,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Apply EMU changes
-        run: ami emu-apply ./emus/ --yes
+        run: memrail emu-apply ./emus/ --yes
         env:
           AMI_API_KEY: ${{ secrets.AMI_API_KEY }}
           AMI_WORKSPACE: production
@@ -377,7 +377,7 @@ repos:
     hooks:
       - id: emu-validate
         name: Validate EMU JSONL
-        entry: ami emu-validate ./emus/
+        entry: memrail emu-validate ./emus/
         language: system
         files: 'emus/.*\.jsonl$'
 ```
@@ -404,32 +404,32 @@ my-project/
 
 ```bash
 # Pull first to sync state
-ami emu-pull ./emus/ -w production -p my-project
+memrail emu-pull ./emus/ -w production -p my-project
 ```
 
 ### "Lock file out of sync"
 
 ```bash
 # Re-pull to refresh lock file
-ami emu-pull ./emus/ -w production -p my-project --force
+memrail emu-pull ./emus/ -w production -p my-project --force
 ```
 
 ### "Conflict: EMU modified remotely"
 
 ```bash
 # Pull remote changes first
-ami emu-pull ./emus/ -w production -p my-project
+memrail emu-pull ./emus/ -w production -p my-project
 
 # Resolve conflicts in emus.jsonl
 # Then re-apply
-ami emu-apply ./emus/ --yes
+memrail emu-apply ./emus/ --yes
 ```
 
 ### "Invalid JSONL syntax"
 
 ```bash
 # Validate JSONL format
-ami emu-validate ./emus/
+memrail emu-validate ./emus/
 
 # Common issues:
 # - Missing commas

@@ -1,8 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ami *)",
-      "Skill(memrail:ami)"
+      "Bash(memrail *)",
+      "Skill(memrail:ami)",
+      "Skill(memrail:memrail)"
     ]
   }
 }

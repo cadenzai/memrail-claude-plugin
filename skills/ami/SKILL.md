@@ -1,6 +1,6 @@
 ---
 name: ami
-description: Expert guidance on Memrail SOMA AMI (Self-Organizing Memory Architecture - Adaptive Memory Interface) including EMU (Executable Memory Unit) design, ATOM (state/tag/event) builders, trigger DSL syntax, event ingestion, Python and TypeScript SDK integration, and trigger reachability analysis. Use when working with Memrail AMI, EMU configurations, deterministic decision systems, event-driven workflows, or when implementing memory-augmented agent systems.
+description: Expert guidance on Memrail's SOMA AMI including EMU (Executable Memory Unit) design, ATOM (state/tag/event) builders, trigger DSL syntax, event ingestion, Python and TypeScript SDK integration, and trigger reachability analysis. Use when working with Memrail AMI, EMU configurations, deterministic decision systems, event-driven workflows, or when implementing memory-augmented agent systems.
 metadata:
   author: memrail
   version: "2.0"
@@ -9,7 +9,7 @@ compatibility: Works with Python 3.8+ (ami-sdk) and Node.js 18+ (@memrail/ami-sd
 
 # Memrail SOMA AMI Expert Skill
 
-A deterministic decision engine for memory-augmented agent systems. The core abstraction is the **EMU (Executable Memory Unit)** — a conditional action that fires deterministically when its trigger expression evaluates to TRUE.
+A deterministic decision engine for automated systems. The core abstraction is the **EMU (Executable Memory Unit)** — a conditional action that fires deterministically when its trigger expression evaluates to TRUE.
 
 **Three atom types drive all decisions:**
 - **State atoms** — Structured facts (`state.user.tier`, `state.ticket.priority`)
@@ -81,7 +81,7 @@ Read [references/11-emu-design-heuristics.md](references/11-emu-design-heuristic
 
 Read [references/12-emu-jsonl-workflow.md](references/12-emu-jsonl-workflow.md) when creating, modifying, or deploying production EMUs. **This is the ONLY recommended workflow for production.** Covers `emu-pull/plan/apply` IaC sync, JSONL format, CI/CD integration, and lock file management. Never use SDK `register_emu()` for production EMUs.
 
-Read [references/05-sdk-integration-python.md](references/05-sdk-integration-python.md) (Python) or [references/05b-sdk-integration-typescript.md](references/05b-sdk-integration-typescript.md) (TypeScript) § "Agent Validation Workflow" when deploying EMUs and needing validation feedback. Use `ami emu-apply --validate` for inline validation or `ami emu-validate` for on-demand health checks.
+Read [references/05-sdk-integration-python.md](references/05-sdk-integration-python.md) (Python) or [references/05b-sdk-integration-typescript.md](references/05b-sdk-integration-typescript.md) (TypeScript) § "Agent Validation Workflow" when deploying EMUs and needing validation feedback. Use `memrail emu-apply --validate` for inline validation or `memrail emu-validate` for on-demand health checks.
 
 Read [references/09-tool-registry-executors.md](references/09-tool-registry-executors.md) when registering tools via CLI, setting up ToolRegistry, ActionExecutor, shadow/canary mode execution, circuit breakers, rate limiting, or metrics collection.
 
@@ -89,7 +89,7 @@ Read [references/09-tool-registry-executors.md](references/09-tool-registry-exec
 
 Read [references/03-trigger-reachability.md](references/03-trigger-reachability.md) when an EMU isn't firing as expected, debugging missing ATOM dependencies, analyzing ML inference dependencies, or validating that ATOM builders provide all required keys.
 
-Read [references/05-sdk-integration-python.md](references/05-sdk-integration-python.md) (Python) or [references/05b-sdk-integration-typescript.md](references/05b-sdk-integration-typescript.md) (TypeScript) § "Workspace Management" when purging a workspace for dev/testing resets. Use `ami purge-workspace <workspace> --yes` (or `--targets emus,traces,events` for selective purge). Requires org-level API key.
+Read [references/05-sdk-integration-python.md](references/05-sdk-integration-python.md) (Python) or [references/05b-sdk-integration-typescript.md](references/05b-sdk-integration-typescript.md) (TypeScript) § "Workspace Management" when purging a workspace for dev/testing resets. Use `memrail purge-workspace <workspace> --yes` (or `--targets emus,traces,events` for selective purge). Requires org-level API key.
 
 Read [references/08-static-analysis.md](references/08-static-analysis.md) when validating decision plane completeness, setting up CI/CD integration for completeness checks, or running the automated analysis script.
 
@@ -110,10 +110,10 @@ Read [references/11-emu-design-heuristics.md](references/11-emu-design-heuristic
 6. Start in shadow mode, promote after testing
 
 ### Deploying EMUs (IaC Workflow)
-1. `ami emu-pull ./emus/ -w production -p my-project`
+1. `memrail emu-pull ./emus/ -w production -p my-project`
 2. Edit `./emus/emus.jsonl` (one EMU per line)
-3. `ami emu-plan ./emus/ --validate` — preview changes + validation
-4. `ami emu-apply ./emus/ --yes --validate` — sync + validate
+3. `memrail emu-plan ./emus/ --validate` — preview changes + validation
+4. `memrail emu-apply ./emus/ --yes --validate` — sync + validate
 5. Fix any validation warnings, re-apply if needed
 6. Commit both `emus.jsonl` and `.emu.lock.jsonl` to git
 
@@ -124,8 +124,8 @@ Read [references/11-emu-design-heuristics.md](references/11-emu-design-heuristic
 4. Verify all state/tag atoms are provided at invoke time
 5. Query event history to confirm events exist with correct names
 6. Check event names match ingestion convention: `subject.verb.object`
-7. Run `ami emu-validate -w <ws> -p <proj>` for bulk validation health check
-8. Run `ami emu-apply ./emus/ --validate` to get inline validation after deploy
+7. Run `memrail emu-validate -w <ws> -p <proj>` for bulk validation health check
+8. Run `memrail emu-apply ./emus/ --validate` to get inline validation after deploy
 9. Interpret warning codes and apply remediation suggestions (see references/05-sdk-integration-python.md or references/05b-sdk-integration-typescript.md § "Warning Code Reference")
 
 ### SDK Quick Start
@@ -180,9 +180,9 @@ Use `decide(context=...)` (Python) or `decide({ context: [...] })` (TypeScript).
 4. **`idempotency` is structured** — `{enabled: true, boundary: "workspace", roles: "auto", scope: [...]}`
 5. **Trigger keys need 2+ dot segments** — `state.user.tier` valid, `state.test` invalid
 6. **Auth scheme is `AMI-Key`** — not `Bearer`. Header: `Authorization: AMI-Key <key>`
-7. **Use `ami emu-apply` for bulk** — not `ami register-emu` (single EMUs only)
+7. **Use `memrail emu-apply` for bulk** — not `memrail register-emu` (single EMUs only)
 
-### Tool Registration Rules (CLI `ami tool-register`)
+### Tool Registration Rules (CLI `memrail tool-register`)
 1. **`ToolRegistry` must be at module level** — CLI imports module looking for global `registry`
 2. **Use `@registry.tool(...)` decorators** — not `@client.tool(...)`
 3. **Keep file dependency-free** — no app imports; CLI must import standalone
