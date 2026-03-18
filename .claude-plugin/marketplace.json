@@ -1,0 +1,18 @@
+{
+  "name": "memrail",
+  "owner": { "name": "Cadenzai" },
+  "metadata": {
+    "description": "SOMA AMI expert system — deterministic decision engine for memory-augmented agents"
+  },
+  "plugins": [
+    {
+      "name": "memrail",
+      "source": ".",
+      "description": "SOMA AMI expert system — deterministic decision engine for memory-augmented agents. Design, implement, validate, and review EMU integrations with Python and TypeScript SDK support.",
+      "version": "2.0.0",
+      "author": { "name": "Cadenzai" },
+      "homepage": "https://github.com/cadenzai/memrail-claude-plugin",
+      "keywords": ["ami", "emu", "agents", "memory", "decision-engine"]
+    }
+  ]
+}
