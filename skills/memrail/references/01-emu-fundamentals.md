@@ -124,7 +124,7 @@ Controls execution behavior:
 ```python
 {
     "mode": "auto",                    # auto | require_human | advisory
-    "priority": 8,                     # 1-10 (higher = more important)
+    "priority": 8,                     # 0-9 (higher = more important)
     "cooldown": {                      # Rate limiting
         "seconds": 3600,
         "gate": "activation"
@@ -384,15 +384,15 @@ policy={"mode": "advisory"}
 
 ### Priority
 
-**Range**: 1-10 (higher = more important)
+**Range**: 0-9 (higher = more important)
 **Purpose**: Rank EMUs when multiple fire simultaneously
 
 ```python
-priority=9  # Critical: system alerts, VIP escalations
-priority=7  # Important: SLA breaches, high-value customers
-priority=5  # Standard: routine workflows, notifications
-priority=3  # Optional: suggestions, enhancements
-priority=1  # Low: satisfaction surveys, analytics
+priority=9  # 8-9 Critical: system alerts, VIP escalations
+priority=7  # 6-7 Important: SLA breaches, high-value customers
+priority=5  # 4-5 Standard: routine workflows, notifications
+priority=3  # 2-3 Optional: suggestions, enhancements
+priority=1  # 0-1 Low: satisfaction surveys, analytics
 ```
 
 ### Cooldown
