@@ -222,12 +222,14 @@ Design execution policies for each EMU:
 - `require_human`: Human approval required (low confidence, high stakes)
 - `advisory`: Informational only
 
-**Priority:** 1-10 (higher = more important)
-- 9-10: Critical (VIP escalations, security alerts)
-- 7-8: High (SLA breaches, routing decisions)
-- 5-6: Standard (workflow automation)
-- 3-4: Optional (KB suggestions)
-- 1-2: Low (surveys, analytics)
+**Priority:** 0-9 (higher = more important)
+ 
+- **8-9:** Critical (VIP escalations, security alerts)
+- **6-7:** High (SLA breaches, routing decisions)
+- **4-5:** Standard (workflow automation)
+- **2-3:** Optional (KB suggestions)
+- **0-1:** Low (surveys, analytics)
+ 
 
 **Cooldown:** Rate limiting
 ```
