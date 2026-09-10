@@ -3,8 +3,8 @@ name: memrail
 description: Expert guidance on Memrail's SOMA AMI including EMU (Executable Memory Unit) design, ATOM (state/tag/event) builders, trigger DSL syntax, event ingestion, Python and TypeScript SDK integration, and trigger reachability analysis. Use when working with Memrail AMI, EMU configurations, deterministic decision systems, event-driven workflows, or when implementing memory-augmented agent systems.
 metadata:
   author: memrail
-  version: "2.0"
-compatibility: Works with Python 3.8+ (memrail) and Node.js 18+ (@memrail/sdk). Designed for Claude Code and similar agents.
+  version: "2.1"
+  compatibility: Python 3.9+ (memrail) or TypeScript (@memrail/sdk). Check installed SDK and CLI capabilities before using a workflow. Designed for coding agents.
 ---
 
 # Memrail SOMA AMI Expert Skill
@@ -19,19 +19,17 @@ A deterministic decision engine for automated systems. The core abstraction is t
 ## Key Principles
 
 ### Determinism
-Same inputs => Same outputs. No randomness in decision-making.
+The same policy, context, evaluation time, retained history, and control state produce the same decision. Replaying atoms alone does not freeze those other inputs.
 - Triggers are boolean expressions that always evaluate the same way
 - ML is used ONLY for classification/tagging, not for decisions
 - LLM outputs must be constrained to fixed taxonomies (Pydantic Literal types in Python, Zod enums in TypeScript)
 
 ### Trigger Reachability
-A trigger can only fire if ALL required ATOMs are present at invoke time.
-- Missing state/tag atoms => trigger evaluates to FALSE
-- No matching events => event queries return FALSE
+Check each branch against the ATOMs available at invoke time. Missing positive comparisons generally return FALSE, but `NOT`, `OR`, and zero-event counts can still make an expression TRUE. Use explicit `EXISTS` guards when absence must deny an action, and test missing/null inputs.
 
 ### Project Coherence (CRITICAL)
 **The project is the unit of coherence.** EMUs and their referenced tools MUST be in the same project.
-- EMU referencing unavailable tool = connectivity failure (EMU never fires)
+- Selection and execution are separate: a selected EMU still needs a registered, project-visible handler and application authorization
 - Always validate tool availability before EMU registration
 
 ### Event-Driven Architecture
@@ -47,13 +45,13 @@ state.user.tier == 'premium'                              // State equality
 state.user.tier IN ['gold', 'platinum']                    // Set membership
 event.agent.sent.email IN 'PT24H'                          // Event recency
 COUNT event.user.failed.login IN 'PT10M' >= 5              // Event counting
-event.order.shipped WHERE order_id == 'ord-456' IN 'P7D'   // Attribute filter
+event.order.shipped.parcel WHERE order_id == 'ord-456' IN 'P7D'   // Attribute filter
 state.user.email ENDS_WITH '@company.com'                  // String operations
-state.code MATCHES '^[A-Z]{3}-\d{4}$'                     // Regex match
+state.ticket.code MATCHES '^[A-Z]{3}-[0-9]{4}$'                     // Regex match
 ```
 
 Operators must be UPPERCASE (`AND`, `OR`, `NOT`, `IN`, `EXISTS`, `CONTAINS`, `MATCHES`).
-Keys must be lowercase with 2+ dot segments (`state.user.tier`, not `state.test`).
+State keys must be lowercase with 2+ dot segments (`state.user.tier`, not `state.test`). Tag kinds can be single-segment (`tag.intent`); event topics use subject.verb.object.
 
 ## Reference Index
 
@@ -81,7 +79,7 @@ Read [references/11-emu-design-heuristics.md](references/11-emu-design-heuristic
 
 Read [references/12-emu-jsonl-workflow.md](references/12-emu-jsonl-workflow.md) when creating, modifying, or deploying production EMUs. **This is the ONLY recommended workflow for production.** Covers `emu-pull/plan/apply` IaC sync, JSONL format, CI/CD integration, and lock file management. Never use SDK `register_emu()` for production EMUs.
 
-Read [references/05-sdk-integration-python.md](references/05-sdk-integration-python.md) (Python) or [references/05b-sdk-integration-typescript.md](references/05b-sdk-integration-typescript.md) (TypeScript) § "Agent Validation Workflow" when deploying EMUs and needing validation feedback. Use `memrail emu-apply --validate` for inline validation or `memrail emu-validate` for on-demand health checks.
+Read [references/05-sdk-integration-python.md](references/05-sdk-integration-python.md) (Python) or [references/05b-sdk-integration-typescript.md](references/05b-sdk-integration-typescript.md) (TypeScript) § "Agent Validation Workflow" when deploying EMUs and needing validation feedback. Use `memrail emu-plan --strict` and `memrail emu-apply --strict` for candidate validation before writes, or `memrail emu-validate` for deployed-EMU health checks.
 
 Read [references/09-tool-registry-executors.md](references/09-tool-registry-executors.md) when registering tools via CLI, setting up ToolRegistry, ActionExecutor, shadow/canary mode execution, circuit breakers, rate limiting, or metrics collection.
 
@@ -112,9 +110,9 @@ Read [references/11-emu-design-heuristics.md](references/11-emu-design-heuristic
 ### Deploying EMUs (IaC Workflow)
 1. `memrail emu-pull ./emus/ -w production -p my-project`
 2. Edit `./emus/emus.jsonl` (one EMU per line)
-3. `memrail emu-plan ./emus/ --validate` — preview changes + validation
-4. `memrail emu-apply ./emus/ --yes --validate` — sync + validate
-5. Fix any validation warnings, re-apply if needed
+3. `memrail emu-plan ./emus/ --strict` — preview and validate candidates before writes
+4. Review the plan and resolve errors; verify the installed CLI exposes `--strict` in `--help`
+5. `memrail emu-apply ./emus/ --yes --strict` — repeat validation, then apply
 6. Commit both `emus.jsonl` and `.emu.lock.jsonl` to git
 
 ### Debugging an EMU
@@ -125,7 +123,7 @@ Read [references/11-emu-design-heuristics.md](references/11-emu-design-heuristic
 5. Query event history to confirm events exist with correct names
 6. Check event names match ingestion convention: `subject.verb.object`
 7. Run `memrail emu-validate -w <ws> -p <proj>` for bulk validation health check
-8. Run `memrail emu-apply ./emus/ --validate` to get inline validation after deploy
+8. Run `memrail emu-plan ./emus/ --strict` to validate proposed corrections before deployment
 9. Interpret warning codes and apply remediation suggestions (see references/05-sdk-integration-python.md or references/05b-sdk-integration-typescript.md § "Warning Code Reference")
 
 ### SDK Quick Start
@@ -145,7 +143,7 @@ async with AsyncAMIClient(
         tag("category", "billing")
     ])
     for item in response.selected:
-        await execute_tool(item.action.tool)
+        print(item.emu_key, item.lifecycle_state, item.policy, item.action)
 ```
 
 **TypeScript:**
@@ -165,11 +163,13 @@ const response = await client.decide({
     ]
 });
 for (const item of response.selected) {
-    await executeTool(item.action.tool);
+    console.log(item.emu_key, item.lifecycle_state, item.policy, item.action);
 }
 ```
 
 Use `decide(context=...)` (Python) or `decide({ context: [...] })` (TypeScript). Use `atoms_from_dict(data, prefix="user")` / `atomsFromDict(data, "user")` for complex nested data.
+
+`decide` selects actions; it does not execute them. For execution, use the combined helper with a reviewed tool registry in [Tool Registry & Executors](references/09-tool-registry-executors.md). Preserve returned policy and lifecycle metadata. Supply consent only from application-verified approval, never model output.
 
 ## Gotchas
 
@@ -178,7 +178,7 @@ Use `decide(context=...)` (Python) or `decide({ context: [...] })` (TypeScript).
 2. **`state` must be lowercase** — `active`, `shadow`, `canary`, `draft`, `inactive`, `archived`
 3. **`cooldown` is `{seconds: N, gate: "ack"}`** — never ISO strings. Convert: PT1H=3600, PT48H=172800, P7D=604800
 4. **`idempotency` is structured** — `{enabled: true, boundary: "workspace", roles: "auto", scope: [...]}`
-5. **Trigger keys need 2+ dot segments** — `state.user.tier` valid, `state.test` invalid
+5. **State keys need 2+ dot segments** — `state.user.tier` valid, `state.test` invalid
 6. **Auth scheme is `AMI-Key`** — not `Bearer`. Header: `Authorization: AMI-Key <key>`
 7. **Use `memrail emu-apply` for bulk** — not `memrail register-emu` (single EMUs only)
 
@@ -194,8 +194,8 @@ Use `decide(context=...)` (Python) or `decide({ context: [...] })` (TypeScript).
 - **Missing ATOM builders** — validate reachability before designing triggers
 - **Event name mismatch** — trigger says `event.agent.sent.email` but ingestion uses `event.email.sent.agent`. Convention: `subject.verb.object`
 - **No event emission after actions** — breaks self-improvement; always emit events
-- **WHERE with state references** — `WHERE attr == state.x` is invalid; use template literals `WHERE attr == '{{state.x}}'`
-- **Events beyond retention** — 90-day max; `event.X IN 'P180D'` will never match
+- **WHERE with state references** — `WHERE user_id == state.user.id` is invalid; use `WHERE user_id == '{{user.id}}'`
+- **Windows beyond retention** — queries see retained events only. Check effective workspace/organization retention; a long window may still match recent events but cannot recover expired history
 
 ## Agent Instructions
 
@@ -206,10 +206,10 @@ When starting work on a project, detect which SDK is in use:
 - Reference the appropriate SDK documentation accordingly
 
 - Always use modern DSL syntax with dot notation
-- Use `decide(context=...)` — the only supported calling convention
-- Use `context` (not `context_atoms`) in API request bodies
+- Prefer `decide(context=...)`; `atoms` is an SDK alias, not an additional input
+- Use `context_atoms` in HTTP request bodies; SDK methods expose the ergonomic `context` alias
 - Prefer ergonomic event counting: `COUNT event.X IN 'PT1H' > 5`
-- Use `decision_point` parameter to name invoke sites for analytics
+- Use `decision_point` to bind an EMU to an exact named invocation site, not merely as an analytics label; JSONL omission preserves an existing binding and explicit null clears it
 - Always check trigger reachability before suggesting EMU designs
 - Suggest shadow mode testing before production deployment
 - Validate project coherence — EMUs and their tools must be in the same project
@@ -218,4 +218,4 @@ When starting work on a project, detect which SDK is in use:
 ---
 
 **Version**: AMI v2 (Modern DSL with dot notation, IaC Sync)
-**Last Updated**: 2026-03-18
+**Last Updated**: 2026-09-10

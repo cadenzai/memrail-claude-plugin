@@ -4,6 +4,10 @@
 
 > **Note**: This cookbook uses the **modern DSL syntax** with dot notation (`state.user.tier == 'premium'`) introduced in AMI v2. See [DSL Reference](02-dsl-reference.md) for complete syntax documentation.
 
+These are design examples, not deployment-ready business contracts. Add entity-scoped event filters, required input guards, explicit lifecycle and decision-point bindings, and literal-key idempotency for side effects before applying through [JSONL sync](12-emu-jsonl-workflow.md). Sections that omit scoring/tool fields are fragments.
+
+For a prompt that collects a choice, use advisory mode; `require_human` gates dispatch on an already verified approval and does not itself build an approval workflow.
+
 ## Table of Contents
 
 - [Customer Support](#customer-support)
@@ -25,7 +29,7 @@
 ```json
 {
     "emu_key": "support.vip_escalation",
-    "trigger": "state.customer.tier == 'vip' AND state.ticket.priority >= 'high' AND NOT event.agent.escalated.ticket IN 'PT2H'",
+    "trigger": "state.customer.tier == 'vip' AND state.ticket.priority IN ['high', 'urgent', 'critical'] AND NOT event.agent.escalated.ticket IN 'PT2H'",
     "action": {
         "type": "tool_call",
         "intent": "ESCALATE_TO_VIP_TEAM",
@@ -241,7 +245,7 @@
         ]
     },
     "policy": {
-        "mode": "require_human",
+        "mode": "advisory",
         "priority": 7,
         "cooldown": {"seconds": 0, "gate": "activation"}
     },
@@ -430,7 +434,7 @@
         ]
     },
     "policy": {
-        "mode": "require_human",
+        "mode": "advisory",
         "priority": 8,
         "cooldown": {"seconds": 604800, "gate": "activation"}
     },
@@ -657,11 +661,11 @@
 state.user.role STARTS_WITH 'admin-'
 
 // Substring search
-state.message CONTAINS 'urgent' OR state.message CONTAINS 'CRITICAL'
+state.ticket.message CONTAINS 'urgent' OR state.ticket.message CONTAINS 'CRITICAL'
 
 // Regex pattern matching
-state.code MATCHES '^[A-Z]{3}-\d{4}$'
-state.phone MATCHES '^\+1-\d{3}-\d{3}-\d{4}$'
+state.ticket.code MATCHES '^[A-Z]{3}-\d{4}$'
+state.user.phone MATCHES '^\+1-\d{3}-\d{3}-\d{4}$'
 ```
 
 ### 2. WHERE Clause Filtering (Attribute-Level Event Filtering)
@@ -697,10 +701,10 @@ state.phone MATCHES '^\+1-\d{3}-\d{3}-\d{4}$'
 **WHERE Clause Use Cases**:
 ```javascript
 // Order tracking - Did THIS order ship?
-event.order.shipped WHERE order_id == 'ord-456' IN 'P7D'
+event.order.shipped.parcel WHERE order_id == 'ord-456' IN 'P7D'
 
 // Multi-attribute filtering
-COUNT event.purchase.completed WHERE customer_id == 'cust-123' AND amount >= 1000 IN 'P30D' >= 3
+COUNT event.customer.completed.purchase WHERE customer_id == 'cust-123' AND amount_band == 'large' IN 'P30D' >= 3
 
 // Session activity
 COUNT event.user.clicked.button WHERE session_id == 'sess-789' IN 'PT1H' > 10
@@ -729,7 +733,7 @@ COUNT event.user.clicked.button WHERE session_id == 'sess-789' IN 'PT1H' > 10
 
 **DSL Features Demonstrated**:
 - `IN` operator - Check membership in list of values
-- Case-insensitive matching - 'Gold', 'GOLD', 'gold' all match
+- State membership compares supplied values; normalize application tiers explicitly
 
 **IN Operator Use Cases**:
 ```javascript
@@ -754,7 +758,7 @@ tag.category IN ['billing', 'support', 'sales']
 ```json
 {
     "emu_key": "workflow.authenticated_checkout",
-    "trigger": "event.auth_service.user.logged.in IN 'PT24H' AND state.cart.total >= 100 AND NOT event.payment_service.payment.failed IN 'PT1H'",
+    "trigger": "event.auth_service.user.logged.in IN 'PT24H' AND state.cart.total >= 100 AND NOT event.payment_service.payment.failed.transaction IN 'PT1H'",
     "action": {
         "type": "tool_call",
         "intent": "ENABLE_CHECKOUT",
@@ -778,18 +782,18 @@ tag.category IN ['billing', 'support', 'sales']
 **Cross-Project Use Cases**:
 ```javascript
 // Multi-service error correlation
-COUNT event.api_gateway.request.failed IN 'PT5M' >= 10 AND
-NOT event.backend_service.error.occurred IN 'PT5M'
+COUNT event.api_gateway.request.failed.call IN 'PT5M' >= 10 AND
+NOT event.backend_service.error.occurred.request IN 'PT5M'
 
 // Distributed workflow tracking
-event.order_service.order.created IN 'PT1H' AND
-event.payment_service.payment.completed IN 'PT1H' AND
-event.inventory_service.items.reserved IN 'PT1H' AND
-NOT event.notification_service.email.sent IN 'PT1H'
+event.order_service.order.created.cart IN 'PT1H' AND
+event.payment_service.payment.completed.transaction IN 'PT1H' AND
+event.inventory_service.items.reserved.stock IN 'PT1H' AND
+NOT event.notification_service.email.sent.message IN 'PT1H'
 
 // Authentication flow
 event.auth_service.user.logged.in IN 'PT24H' AND
-event.shop_service.user.initiated.checkout
+event.shop_service.user.initiated.checkout IN 'PT1H'
 ```
 
 ### 5. Boolean Shorthand
@@ -843,8 +847,8 @@ state.user.admin OR state.user.moderator
         ]
     },
     "policy": {
-        "mode": "require_human",
-        "priority": 10,
+        "mode": "advisory",
+        "priority": 9,
         "cooldown": {"seconds": 604800, "gate": "activation"}
     },
     "expected_utility": 0.92,
@@ -948,18 +952,18 @@ COUNT event.user.clicked.button WHERE user_id == 'user-123' IN 'PT1H' > 10
 [
   {
     "emu_key": "escalate_vip",
-    "trigger": "state.customer.tier == 'vip' AND state.ticket.priority >= 'high'",
+    "trigger": "state.customer.tier == 'vip' AND state.ticket.priority IN ['high', 'urgent', 'critical']",
     "policy": {"exclusion_groups": ["escalations"], "priority": 9},
     "action": {"type": "route", "destination": "vip_queue"}
   },
   {
     "emu_key": "escalate_high_priority",
-    "trigger": "state.ticket.priority >= 'high'",
+    "trigger": "state.ticket.priority IN ['high', 'urgent', 'critical']",
     "policy": {"exclusion_groups": ["escalations"], "priority": 7},
     "action": {"type": "route", "destination": "priority_queue"}
   }
 ]
-// Only highest priority (vip) fires if both match
+// Arbitration score and tie-break order select one eligible group member
 ```
 
 ### Pattern 7: Staged Rollout
@@ -972,7 +976,7 @@ COUNT event.user.clicked.button WHERE user_id == 'user-123' IN 'PT1H' > 10
     "state": "shadow"
 }
 
-# Stage 2: Canary mode (10% traffic)
+# Stage 2: Canary mode (requires an application-owned executor cohort)
 {
     "state": "canary"
 }
@@ -1021,7 +1025,7 @@ COUNT event.user.clicked.button WHERE user_id == 'user-123' IN 'PT1H' > 10
             {"id": "offer_incentive", "label": "Prepare Retention Offer"}
         ]
     },
-    "policy": {"mode": "require_human", "priority": 9}
+    "policy": {"mode": "advisory", "priority": 9}
 }
 ```
 
@@ -1050,20 +1054,20 @@ COUNT event.user.clicked.button WHERE user_id == 'user-123' IN 'PT1H' > 10
 ```javascript
 // 4-part notation: event.PROJECT_NAME.subject.verb.object
 event.auth_service.user.logged.in IN 'PT24H'
-event.payment_service.payment.completed IN 'PT1H'
+event.payment_service.payment.completed.transaction IN 'PT1H'
 COUNT event.analytics_proj.user.viewed.page IN 'P7D' >= 50
 ```
 
-## Complete Example: Support Automation Suite
+## Pattern Suite: Support Automation
 
-Here's a complete suite of EMUs for support automation using modern DSL syntax:
+These fragments show a support suite's structure; complete scoring, tool versions, templates, entity scope, and execution controls before deployment:
 
 ```json
 // 1. VIP Fast-Track (Highest Priority)
 {
     "emu_key": "support.vip_fast_track",
-    "trigger": "state.customer.tier == 'vip' AND state.ticket.priority >= 'high'",
-    "policy": {"priority": 10, "mode": "auto", "exclusion_groups": ["routing"]},
+    "trigger": "state.customer.tier == 'vip' AND state.ticket.priority IN ['high', 'urgent', 'critical']",
+    "policy": {"priority": 9, "mode": "auto", "exclusion_groups": ["routing"]},
     "action": {"type": "route", "destination": "vip_queue"}
 }
 
@@ -1118,8 +1122,8 @@ Here's a complete suite of EMUs for support automation using modern DSL syntax:
 
 **Key Features of This Suite**:
 - **Modern DSL Syntax**: Uses dot notation (`state.field`, `tag.kind`, `event.topic IN 'duration'`)
-- **Priority Ordering**: VIP/SLA (9-10) > Routing (8) > Follow-ups (5) > Suggestions (3) > Surveys (2)
+- **Priority Ordering**: VIP/SLA (9) > Routing (8) > Follow-ups (5) > Suggestions (3) > Surveys (2)
 - **Exclusivity Groups**: `routing` ensures only one routing EMU fires
-- **Boolean Shorthand**: Implicit `!= 'resolved'` checks
-- **Event Prevention**: `NOT event.X IN 'duration'` prevents duplicate actions
+- **Explicit Comparisons**: Status checks such as `!= 'resolved'`
+- **Recent-history Guards**: Negated event checks complement cooldown and operation-level duplicate protection
 - **IN Operator**: Clean multi-value matching for languages and categories

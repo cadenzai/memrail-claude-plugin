@@ -8,8 +8,8 @@
 |---------|------------|-------------------|
 | Version control | Git-tracked | Not tracked |
 | PR reviews | One EMU per line, diff-friendly | Code changes only |
-| Rollback | `git revert` | Manual |
-| Team coordination | Lock file prevents conflicts | Race conditions |
+| Rollback | Revert desired JSONL, review plan, apply | Manual |
+| Team coordination | Lock file tracks the last synced content | Race conditions |
 | CI/CD | Native support | Custom scripts |
 | Audit trail | Git history | API logs only |
 | Production writes | **REQUIRED** | **NOT ALLOWED** |
@@ -131,7 +131,7 @@ Common conversions: PT1H=3600, PT12H=43200, PT24H=86400, PT48H=172800, P7D=60480
 
 ```json
 // CORRECT
-"idempotency": {"enabled": true, "boundary": "workspace", "roles": "auto", "scope": ["reminder:{{id}}"]}
+"idempotency": {"enabled": true, "boundary": "workspace", "roles": "auto", "scope": ["reminder.id"]}
 
 // WRONG — not recognized by API
 "idempotency_key": "reminder:{{id}}"
@@ -139,7 +139,7 @@ Common conversions: PT1H=3600, PT12H=43200, PT24H=86400, PT48H=172800, P7D=60480
 
 ### 5. Trigger namespace keys need 2+ dot segments
 
-State/tag keys must have at least two segments matching `^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$`.
+State keys must have at least two segments matching `^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$`.
 
 ```javascript
 // CORRECT
@@ -157,12 +157,31 @@ state.active == true
 Authorization: AMI-Key <your-api-key>
 ```
 
+## Candidate Validation
+
+Check `memrail emu-plan --help` and `memrail emu-apply --help` for `--strict` before selecting this workflow. A newly merged capability may not yet exist in the published package.
+
+```bash
+memrail emu-plan ./emus/ -w staging -p support --strict
+memrail emu-apply ./emus/ -w staging -p support --strict --yes
+```
+
+Both commands validate proposed definitions against the scoped server registry before writes. Strict mode stops for errors, unavailable validation, or incomplete reports. `--validate` requests diagnostics but does not impose the strict gate; `--validate-only` is local JSONL/DSL validation and cannot be combined with strict mode. `emu-validate` checks already-deployed EMUs, not pending JSONL edits.
+
+The candidate endpoint is `POST /v1/workspaces/{workspace}/projects/{project}/emus/validate-candidates`, with `{"candidates": [...]}` containing 1–100 complete, uniquely keyed EMUs. Validation is read-only. Review business tests as well as static reports. Apply preflights all candidate batches, but the subsequent multi-record writes are not an atomic transaction.
+
+## Lifecycle and Decision-Point Intent
+
+New EMUs default to draft. Set `--target-state shadow` for new shadow records, and make any explicit JSONL state agree with that target. Existing lifecycle changes use an explicit reviewed `memrail change-state` operation; plan/apply rejects conflicting lifecycle intent rather than silently ignoring or applying it. Omitting state preserves the existing lifecycle.
+
+A JSONL `decision_point` binds the EMU to an exact invocation site. Omission preserves an existing binding; explicit null clears it. Keep the calling code and policy binding in the same review.
+
 ## JSONL Format
 
 Each line is a complete EMU definition in JSON:
 
 ```jsonl
-{"emu_key":"vip_escalation","trigger":"state.customer.tier == 'vip' AND state.ticket.priority >= 'high'","action":{"type":"tool_call","intent":"ESCALATE_VIP","tool":{"tool_id":"zendesk_escalator","version":"1.0.0","args":{"queue":"vip-support"}}},"policy":{"mode":"auto","priority":9,"cooldown":{"seconds":7200,"gate":"ack"}},"expected_utility":0.95,"confidence":0.88}
+{"emu_key":"vip_escalation","trigger":"state.customer.tier == 'vip' AND state.ticket.priority == 'high'","action":{"type":"tool_call","intent":"ESCALATE_VIP","tool":{"tool_id":"zendesk_escalator","version":"1.0.0","args":{"queue":"vip-support"}}},"policy":{"mode":"auto","priority":9,"cooldown":{"seconds":7200,"gate":"ack"}},"expected_utility":0.95,"confidence":0.88}
 {"emu_key":"welcome_premium","trigger":"state.user.tier == 'premium'","action":{"type":"tool_call","intent":"SEND_WELCOME","tool":{"tool_id":"mailer","version":"1.0.0","args":{"template":"premium_welcome"}}},"policy":{"mode":"auto","priority":5,"cooldown":{"seconds":86400,"gate":"ack"}},"expected_utility":0.9,"confidence":0.95}
 ```
 
@@ -193,7 +212,7 @@ Each line is a complete EMU definition in JSON:
 }
 ```
 
-**context_directive** (always reachable):
+**context_directive** (requires an application handler):
 ```json
 {
   "type": "context_directive",
@@ -236,10 +255,10 @@ Each line is a complete EMU definition in JSON:
 
 | Field | Values | Description |
 |-------|--------|-------------|
-| `mode` | `auto`, `suggest`, `disabled` | Execution mode |
-| `priority` | 1-10 | Higher = more important |
+| `mode` | `auto`, `require_human`, `advisory` | Execution mode |
+| `priority` | 0-9 | Higher = more important |
 | `cooldown.seconds` | integer | Minimum time between activations |
-| `cooldown.gate` | `activation`, `execution` | When cooldown starts |
+| `cooldown.gate` | `activation`, `ack` | When cooldown starts |
 | `exclusion_groups` | string[] | Mutual exclusion with other EMUs |
 
 ## Practical Examples
@@ -267,7 +286,7 @@ memrail emu-apply ./emus/ --yes
 
 1. Edit the line in `./emus/emus.jsonl`:
 ```jsonl
-{"emu_key":"vip_escalation","trigger":"state.customer.tier IN ['vip', 'enterprise'] AND state.ticket.priority >= 'high'","action":{"type":"tool_call","intent":"ESCALATE_VIP","tool":{"tool_id":"zendesk_escalator","version":"1.0.0","args":{"queue":"vip-support"}}},"policy":{"mode":"auto","priority":10,"cooldown":{"seconds":3600,"gate":"ack"}},"expected_utility":0.95,"confidence":0.9}
+{"emu_key":"vip_escalation","trigger":"state.customer.tier IN ['vip', 'enterprise'] AND state.ticket.priority == 'high'","action":{"type":"tool_call","intent":"ESCALATE_VIP","tool":{"tool_id":"zendesk_escalator","version":"1.0.0","args":{"queue":"vip-support"}}},"policy":{"mode":"auto","priority":9,"cooldown":{"seconds":3600,"gate":"ack"}},"expected_utility":0.95,"confidence":0.9}
 ```
 
 2. Plan shows the diff:
@@ -275,7 +294,7 @@ memrail emu-apply ./emus/ --yes
 memrail emu-plan ./emus/
 # ~ vip_escalation (modified)
 #   trigger: "state.customer.tier == 'vip'" -> "state.customer.tier IN ['vip', 'enterprise']"
-#   policy.priority: 9 -> 10
+#   policy.priority: 9 (unchanged)
 #   policy.cooldown.seconds: 7200 -> 3600
 ```
 
@@ -316,9 +335,13 @@ The `.emu.lock.jsonl` file tracks deployed state:
 - Enables intelligent diffing (content hash comparison)
 - Tracks version history
 
+The lock file is local sync bookkeeping, not a distributed mutex or remote compare-and-swap guarantee. Serialize deployments and compare current remote state before applying. Reverting JSONL requires another reviewed plan/apply; it cannot undo completed business effects.
+
 ## CI/CD Integration
 
 ### GitHub Actions
+
+Pin the CLI to a tested release exposing the required flags. This workflow skeleton requires repository deployment concurrency and credentials scoped to the intended environment.
 
 ```yaml
 # .github/workflows/emu-deploy.yml
@@ -341,9 +364,11 @@ jobs:
         run: pip install memrail
 
       - name: Plan EMU changes
-        run: memrail emu-plan ./emus/ --json > plan.json
+        run: memrail emu-plan ./emus/ --strict --json > plan.json
         env:
           AMI_API_KEY: ${{ secrets.AMI_API_KEY }}
+          AMI_WORKSPACE: production
+          AMI_PROJECT: my-project
 
       - name: Comment PR with plan
         if: github.event_name == 'pull_request'
@@ -360,8 +385,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Memrail CLI
+        run: pip install memrail
+
       - name: Apply EMU changes
-        run: memrail emu-apply ./emus/ --yes
+        run: memrail emu-apply ./emus/ --strict --yes
         env:
           AMI_API_KEY: ${{ secrets.AMI_API_KEY }}
           AMI_WORKSPACE: production
@@ -377,7 +405,8 @@ repos:
     hooks:
       - id: emu-validate
         name: Validate EMU JSONL
-        entry: memrail emu-validate ./emus/
+        entry: memrail emu-plan ./emus/ --validate-only
+        pass_filenames: false
         language: system
         files: 'emus/.*\.jsonl$'
 ```
@@ -410,15 +439,15 @@ memrail emu-pull ./emus/ -w production -p my-project
 ### "Lock file out of sync"
 
 ```bash
-# Re-pull to refresh lock file
-memrail emu-pull ./emus/ -w production -p my-project --force
+# Pull into a separate directory; compare before replacing local work
+memrail emu-pull ./remote-emus/ -w production -p my-project
 ```
 
-### "Conflict: EMU modified remotely"
+### Remote EMUs changed during editing
 
 ```bash
-# Pull remote changes first
-memrail emu-pull ./emus/ -w production -p my-project
+ # Pull into a separate directory to preserve uncommitted edits
+memrail emu-pull ./remote-emus/ -w production -p my-project
 
 # Resolve conflicts in emus.jsonl
 # Then re-apply
@@ -429,7 +458,7 @@ memrail emu-apply ./emus/ --yes
 
 ```bash
 # Validate JSONL format
-memrail emu-validate ./emus/
+memrail emu-plan ./emus/ --validate-only
 
 # Common issues:
 # - Missing commas
@@ -452,10 +481,12 @@ memrail emu-validate ./emus/
 
 | Operation Type | Use | Method |
 |----------------|-----|--------|
-| **Read** (list, get, query) | SDK ✓ | `list_emus()`, `get_emu()`, `invoke()` |
+| **Inspect/evaluate** (list, get, decide) | SDK ✓ | `list_emus()`, `get_emu()`, `decide()` |
 | **Write** (create, update, archive) | JSONL ✓ | `emu-pull`, `emu-plan`, `emu-apply` |
 
-### SDK Read Operations (Always OK)
+### SDK Inspection and Evaluation
+
+Invocation can record traces, accounting, and activation controls; it is not a pure read. Use dry-run for diagnostic evaluation.
 
 ```python
 async with AsyncAMIClient() as client:
@@ -482,4 +513,4 @@ SDK write methods (`register_emu()`, `update_emu()`, `update_emu_lifecycle()`) e
 ---
 
 **Version**: AMI v2 (IaC JSONL Sync)
-**Last Updated**: 2025-02-16
+**Last Updated**: 2026-09-10

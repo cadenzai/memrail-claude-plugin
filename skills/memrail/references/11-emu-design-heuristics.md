@@ -54,6 +54,8 @@ Is current state sufficient to make the decision?
 
 ---
 
+Examples below are design fragments, not complete registration payloads. Complete the definition with `tool.version` for tool calls, scoring fields, and appropriate execution controls using [JSONL sync](12-emu-jsonl-workflow.md).
+
 ## EMU Complexity Ladder
 
 Progress through these levels as you gain confidence:
@@ -158,7 +160,7 @@ Progress through these levels as you gain confidence:
         "intent": "LOCK_ACCOUNT",
         "tool": {"tool_id": "account_manager", "args": {"action": "lock"}}
     },
-    "policy": {"mode": "auto", "priority": 10}
+    "policy": {"mode": "auto", "priority": 9}
 }
 ```
 
@@ -264,11 +266,11 @@ For `tool_call` with side effects:
 
 | Priority | Description | Examples |
 |----------|-------------|----------|
-| 9-10 | Critical, safety/security | Account lockout, fraud alert |
-| 7-8 | High business impact | VIP escalation, SLA breach |
-| 5-6 | Standard operations | Routing, notifications |
-| 3-4 | Nice-to-have | Analytics, insights |
-| 1-2 | Optional, low impact | A/B tests, experiments |
+| 8-9 | Critical, safety/security | Account lockout, fraud alert |
+| 6-7 | High business impact | VIP escalation, SLA breach |
+| 4-5 | Standard operations | Routing, notifications |
+| 2-3 | Nice-to-have | Analytics, insights |
+| 0-1 | Optional, low impact | A/B tests, experiments |
 
 ### Cooldown Configuration
 
@@ -303,7 +305,7 @@ Prevent conflicting EMUs from firing together:
     }
 }
 
-# Highest priority in group wins
+# Arbitration score and configured tie-break order choose the group winner
 ```
 
 ---
@@ -480,10 +482,10 @@ action = {"tool": {"args": {"to": "{{user.email}}"}}}
 ### 5. Unrealistic Time Windows
 
 ```python
-# BAD: 180 days exceeds 90-day retention
+# Incomplete history if effective retention is only 90 days:
 trigger = 'event.user.purchased.item IN "P180D"'
 
-# GOOD: Within retention
+# A 90-day window is complete only while that history is retained:
 trigger = 'event.user.purchased.item IN "P90D"'
 ```
 
@@ -502,8 +504,7 @@ trigger = 'event.user.purchased.item IN "P90D"'
 ### 7. Globally Scoped Event Matching (Unscoped WHERE Clauses)
 
 When an EMU trigger references events without a WHERE clause scoping them to the
-current entity/object, the event matches **globally** — ANY matching event from
-ANY entity satisfies the condition. This causes false triggers when multiple
+current entity/object, the event can match ANY entity within the event query's project scope (including explicitly referenced projects). This causes false triggers when multiple
 entities exist in the same workspace.
 
 ```python
@@ -560,56 +561,13 @@ await log_action(db, "invite_client", "invitation", inv.id, user.id, firm_id,
 
 ## Testing Strategy
 
-### 1. Start in Draft
+Use reviewed [JSONL and lifecycle operations](12-emu-jsonl-workflow.md), not repeated registration of the same key.
 
-```python
-await client.register_emu(
-    emu_key="new-automation",
-    state="draft",  # Not evaluated yet
-    ...
-)
-```
+1. Start a new definition in draft; validate its candidate and run isolated positive, negative, missing-input, boundary, and duplicate tests.
+2. Transition to shadow to observe evaluation without business execution. Inspect `response.trace["candidates"]` (TypeScript: `response.trace?.candidates`), including `passed` and `suppressed_by`; shadow EMUs do not appear in executable selections.
+3. For canary execution, configure an application-owned cohort in the executor and pass a trusted identity. There is no `policy.canary` field. See [Canary Mode](09-tool-registry-executors.md#canary-mode).
+4. Review execution outcomes and rollback criteria, then explicitly promote. Preserve the returned lifecycle and policy metadata throughout the application.
 
-### 2. Promote to Shadow
-
-```python
-await client.update_emu_lifecycle("new-automation", "shadow")
-# EMU is evaluated, results returned, but no execution
-```
-
-### 3. Monitor Shadow Results
-
-```python
-response = await client.decide(context=[...], trace=True)
-
-for item in response.trace.evaluated_emus:
-    if item.emu_key == "new-automation":
-        print(f"Would fire: {item.trigger_result}")
-```
-
-### 4. Promote to Canary (10% traffic)
-
-```python
-await client.register_emu(
-    emu_key="new-automation",
-    state="canary",
-    policy={
-        "canary": {
-            "percentage": 10,
-            "sticky_field": "user.id",
-            "salt": "v1-rollout"
-        }
-    }
-)
-```
-
-### 5. Promote to Active
-
-```python
-await client.update_emu_lifecycle("new-automation", "active")
-```
-
----
 
 **See Also**:
 - [04-emu-cookbook.md](04-emu-cookbook.md) - Real-world examples
