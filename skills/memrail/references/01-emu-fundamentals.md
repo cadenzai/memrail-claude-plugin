@@ -18,7 +18,7 @@ An **Executable Memory Unit (EMU)** is a conditional action definition that fire
 
 ### Core Characteristics
 
-1. **Deterministic**: Same inputs → Same outputs (no randomness)
+1. **Deterministic**: Same policy, context, time, retained history, and control state → same decision
 2. **Conditional**: Fires only when trigger evaluates to TRUE
 3. **Typed**: Uses strongly-typed ATOMs (facts) for decision-making
 4. **Versioned**: Supports iterative refinement with version tracking
@@ -45,7 +45,7 @@ Avoid EMUs for:
 
 ## EMU Structure
 
-An EMU consists of 8 core components:
+An EMU definition contains these fields:
 
 ```python
 {
@@ -64,8 +64,8 @@ An EMU consists of 8 core components:
 
 ### 1. emu_key
 
-**Format**: Lowercase, alphanumeric, underscores, dots
-**Pattern**: `^[a-z0-9_][a-z0-9_.-]*$`
+**Format**: 3–128 lowercase letters, digits, colons, underscores, dots, or hyphens
+**Pattern**: `^[a-z0-9:_.-]{3,128}$`
 
 ```python
 # Valid
@@ -75,8 +75,8 @@ An EMU consists of 8 core components:
 
 # Invalid
 "WelcomeUsers"           # Uppercase
-"welcome-users"          # Hyphens not allowed
-"_private_emu"           # Cannot start with underscore
+"welcome users"          # Spaces not allowed
+"ab"                     # Too short
 ```
 
 **Best practices**:
@@ -165,7 +165,7 @@ expected_utility=0.30  # Optional KB suggestion
 **Type**: `float` (0.0 to 1.0)
 **Purpose**: Confidence that trigger+action are correct
 
-Used to determine when to require human review (low confidence = REQUIRE_HUMAN mode).
+Participates in scoring. It does not automatically change execution mode; set `policy.mode="require_human"` explicitly when approval is required.
 
 ```python
 # High confidence
@@ -198,7 +198,9 @@ Lifecycle state of the EMU:
 | State | Description | Behavior |
 |-------|-------------|----------|
 | `active` | Production-ready, fully active | Fires normally |
-| `canary` | Testing with subset of traffic | Fires based on canary config |
+| `canary` | Testing with an application-owned cohort | Executor requires an affirmative cohort decision |
+| `draft` | New definition, not live | Not selected |
+| `inactive` | Temporarily disabled | Not selected |
 | `shadow` | Evaluation mode only | Trigger evaluated but action NOT executed |
 | `archived` | Deprecated, inactive | Not evaluated |
 
@@ -220,45 +222,13 @@ client.register_emu(
 
 ## EMU Lifecycle
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     EMU Lifecycle                           │
-└─────────────────────────────────────────────────────────────┘
-
-    register_emu()
-         ↓
-    ┌─────────┐
-    │ ACTIVE  │ ← Default state, fully operational
-    └────┬────┘
-         │
-         ├→ update_state("canary")  → Test with subset
-         ├→ update_state("shadow")  → Evaluate without executing
-         ├→ update_state("archived") → Deprecate
-         └→ register_emu()          → Create new version
-                   ↓
-            ┌──────────────┐
-            │ New Version  │
-            │ (v2, v3...)  │
-            └──────────────┘
-```
+New records default to draft. A typical reviewed progression is draft → shadow → canary → active; inactive pauses a policy and archived retires it. Shadow evaluations remain diagnostic, while canary execution requires a configured application cohort.
 
 ### Version Progression
 
-```python
-# v1: Initial EMU
-await client.register_emu(
-    emu_key="welcome_users",
-    trigger="state.user.tier == 'premium'",
-    ...
-)  # Creates version 1
+Manage definitions through [JSONL sync](12-emu-jsonl-workflow.md). Creating a new key creates version 1; updating that key creates the next integer version. Registering the same key again is a conflict, not the update workflow. Updating a definition does not implicitly promote its lifecycle.
 
-# v2: Refined trigger
-await client.register_emu(
-    emu_key="welcome_users",  # Same key
-    trigger="state.user.tier == 'premium' AND NOT event.agent.sent.welcome IN 'P7D'",
-    ...
-)  # Creates version 2, v1 still exists but superseded
-```
+Use `--target-state` for new records and an explicit lifecycle transition for existing records. Conflicting lifecycle intent in JSONL must be resolved before apply.
 
 ## Action Types
 
@@ -373,14 +343,14 @@ policy={"mode": "advisory"}
 
 **Mode × Action Type behavior:**
 
-| action.type | mode = auto | mode = require_human | mode = advisory |
+| action.type | auto | require_human | advisory |
 |---|---|---|---|
-| `tool_call` | Execute immediately | Create approval item | Log suggestion only |
-| `decision_prompt` | Emit prompt | *(mode ignored)* | *(mode ignored)* |
-| `route` | Apply route | *(normalizes to auto)* | *(normalizes to auto)* |
-| `context_directive` | Apply directive | *(normalizes to auto)* | *(normalizes to auto)* |
+| `tool_call` | Eligible for dispatch | Explicit verified consent required | Not dispatched |
+| `decision_prompt` | Eligible for dispatch | Explicit verified consent required | Advisory handler may run |
+| `route` | Eligible for dispatch | Explicit verified consent required | Not dispatched |
+| `context_directive` | Eligible for dispatch | Explicit verified consent required | Advisory handler may run |
 
-> `require_human` and `advisory` only affect `tool_call` actions. All other action types execute normally regardless of mode.
+The application owns approval collection and business authorization. A policy does not create an approval UI automatically. Preserve the returned policy when using the [executor](09-tool-registry-executors.md).
 
 ### Priority
 
@@ -397,7 +367,7 @@ priority=1  # 0-1 Low: satisfaction surveys, analytics
 
 ### Cooldown
 
-Rate-limit EMU execution to prevent spam. Cooldowns are deterministic and respect historical timestamps for backfill scenarios.
+Suppress repeated activations for a chosen interval. Specify the gate explicitly: activation is based on evaluation context time; ACK starts after acknowledgment.
 
 ```python
 {
@@ -408,8 +378,8 @@ Rate-limit EMU execution to prevent spam. Cooldowns are deterministic and respec
 }
 
 # Gates (AMI v2):
-# - "ack": Cooldown starts when acknowledgment received (default, recommended)
-# - "activation": Cooldown starts immediately when EMU fires (legacy mode)
+# - "ack": Cooldown starts when acknowledgment received (choose when suppression should follow acknowledgment)
+# - "activation": Cooldown starts immediately when EMU fires (choose when suppression should follow selection)
 ```
 
 **Common patterns**:
@@ -428,17 +398,9 @@ cooldown={"seconds": 2592000, "gate": "ack"}  # 30 days after ACK
 cooldown={"seconds": 3600, "gate": "activation"}  # 1 hour immediately
 ```
 
-**How cooldowns work with historical data**:
+**Historical evaluation**: `context_ts` controls event-window evaluation; it does not reconstruct previous registry, cooldown, idempotency, or ACK state. Freeze the relevant inputs in an isolated replay test before claiming reproducible historical execution.
 
-When processing historical invocations (e.g., backfilling data with `context_ts` in the past), cooldowns are calculated relative to the `context_ts`, not the current time. This ensures deterministic behavior:
-
-```python
-# Invocation 1: context_ts = 2025-01-01T10:00:00Z → Creates cooldown until 10:01:00Z
-# Invocation 2: context_ts = 2025-01-01T10:00:30Z → Suppressed (within cooldown window)
-# Invocation 3: context_ts = 2025-01-01T10:01:15Z → Allowed (cooldown expired)
-```
-
-This allows you to replay historical data and get the same EMU activation patterns as if they had been processed in real-time.
+For a canary, successful execution ACK starts its controls; an unexecuted cohort selection must not consume them.
 
 **Viewing cooldowns in the Customer Portal**:
 
@@ -455,24 +417,23 @@ Gate: On Activation
 
 ### Idempotency
 
-Prevent duplicate executions for same logical operation.
+Define structural suppression for a logical operation:
 
-```python
+```json
 {
-    "idempotency": {
-        "enabled": true,
-        "scope": ["user.id", "order.id"]  # Keys that define uniqueness
-    }
+  "idempotency": {
+    "enabled": true,
+    "boundary": "workspace",
+    "roles": "auto",
+    "scope": ["user.id", "order.id"],
+    "ttl_sec": 7200
+  }
 }
 ```
 
-**Example**:
+Scope entries are literal state keys, not templates. Supply non-null values for every explicitly declared scope key or role; absent required inputs suppress selection. Zero and false are valid values. Choose a positive TTL for an effective suppression interval.
 
-```python
-# Two invocations with same user.id and order.id → Only first executes
-decide(context=[state("user.id", "U123"), state("order.id", "ORD-456")])
-decide(context=[state("user.id", "U123"), state("order.id", "ORD-456")])  # Skipped!
-```
+This is separate from the invocation request's idempotency key. Neither replaces transactional operation-level deduplication before a business side effect, especially with concurrent invocations or retries after an uncertain outcome.
 
 ### Exclusion Groups
 
@@ -484,53 +445,13 @@ Prevent multiple EMUs in same group from firing simultaneously.
 }
 ```
 
-If multiple EMUs in `"escalation_actions"` match, only the highest-priority one fires.
+If multiple eligible EMUs in `"escalation_actions"` match, arbitration selects a winner by score and configured tie-break order. A high priority alone is not a universal winning guarantee. Shadow arbitration is separate from live arbitration.
 
 ## Versioning
 
-EMUs support semantic versioning at the key level.
+EMU versions are increasing integers per key, separate from the tool's version string. JSONL updates preserve history and the intended lifecycle. A newer version is not automatically active.
 
-### Creating Versions
-
-```python
-# Register v1
-await client.register_emu(
-    emu_key="lead_scorer",
-    trigger="state.lead.source == 'website'",
-    ...
-)
-# Response: {"emu_id": "emu_abc123", "version": 1}
-
-# Register v2 (same key, new trigger)
-await client.register_emu(
-    emu_key="lead_scorer",  # Same key!
-    trigger="state.lead.source == 'website' AND state.lead.company_size >= 100",
-    ...
-)
-# Response: {"emu_id": "emu_xyz789", "version": 2}
-```
-
-### Version Behavior
-
-- **Latest version is active**: By default, newest version is used
-- **Old versions preserved**: All versions remain in database for audit trail
-- **Version-specific retrieval**: Can fetch specific versions via API
-- **Supersession tracking**: Old versions marked as "superseded_by" new version
-
-### Version Migration Strategy
-
-```
-┌────────────────────────────────────────────────────────────┐
-│                  Safe Version Migration                    │
-└────────────────────────────────────────────────────────────┘
-
-1. v1 ACTIVE        → Production traffic
-2. Register v2      → Creates new version
-3. v2 CANARY        → Test with 10% traffic
-4. Monitor v2       → Check metrics, error rates
-5. v2 ACTIVE        → Full rollout
-6. v1 ARCHIVED      → Deprecate old version
-```
+To test a candidate alongside a live policy, use a distinct reviewed candidate key and explicit rollout plan; do not assume registering the live key creates an independently selectable canary. Observe shadow matches, use an application cohort for canary execution, review outcome quality and negative tests, then promote deliberately.
 
 ## Best Practices
 
@@ -583,7 +504,7 @@ emu_key="my_test_rule"
 # ✅ Good: Document ATOM dependencies
 """
 EMU: vip_escalation
-Trigger: state.customer.tier == 'vip' AND state.ticket.priority >= 'high' AND NOT event.agent.escalated.ticket IN 'PT2H'
+Trigger: state.customer.tier == 'vip' AND state.ticket.priority == 'high' AND NOT event.agent.escalated.ticket IN 'PT2H'
 
 ATOMs required:
 - state.customer.tier - From CRM integration
@@ -603,7 +524,7 @@ ML dependencies: None
 # Test with dry_run
 response = await client.decide(
     context=[...],
-    options=InvokeOptions(dry_run=True)  # No side effects
+    options=InvokeOptions(dry_run=True)  # No business execution or activation locks
 )
 
 # Verify trigger logic
@@ -615,7 +536,7 @@ assert response.selected[0].emu_key == "expected_emu"
 
 ```
 1. Deploy as SHADOW → Monitor trigger reach
-2. Promote to CANARY → Test with 10% traffic
+2. Promote to CANARY → Test with an explicit application cohort
 3. Promote to ACTIVE → Full rollout
 4. Monitor metrics → Adjust policy/priority
 5. Refine trigger → Create new version if needed

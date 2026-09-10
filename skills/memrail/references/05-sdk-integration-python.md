@@ -1,1309 +1,251 @@
 # SDK Integration (Python)
 
-**Using the Python SDK to Build and Invoke EMUs**
-
-## Table of Contents
-
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [ATOM Builders](#atom-builders)
-- [EMU Management (CLI)](#emu-management-cli)
-- [Invoking the Engine](#invoking-the-engine)
-- [Event Ingestion](#event-ingestion)
-- [Complete Workflows](#complete-workflows)
-- [Testing & Debugging](#testing--debugging)
-- [Error Handling](#error-handling)
-- [Tool Management](#tool-management)
-- [Workspace Management](#workspace-management)
-- [EMU Validation Reports](#emu-validation-reports)
-- [Best Practices](#best-practices)
-
 ## Installation
 
-### Requirements
-
-- Python 3.8+
-- pip or uv (recommended)
-
-### Install SDK
+Use Python 3.9 or newer and install `memrail` into the application's virtual environment:
 
 ```bash
-# Using pip
-pip install memrail
-
-# Using uv (faster)
-uv pip install memrail
+python -m pip install memrail
+memrail --help
+memrail emu-plan --help
+memrail emu-apply --help
 ```
 
-### Verify Installation
-
-```python
-import memrail
-print(memrail.__version__)  # e.g., "2.0.0"
-```
+Check the installed SDK version and CLI capabilities. A merged SDK change is not necessarily available in a published package. Candidate-validation workflows below require a CLI exposing `--strict` and a server supporting candidate validation.
 
 ## Configuration
 
-### API Key Setup
-
-Obtain API key from AMI dashboard or bootstrap script:
-
-```bash
-# Bootstrap creates org + keys
-uv run python scripts/bootstrap_org.py --name "My Org" --region us-miami-1
-```
-
-### Configuration Methods
-
-#### Method 1: Environment Variables (Recommended)
+Obtain an API key from your Memrail organization. Keep credentials outside source control.
 
 ```bash
 export AMI_API_KEY="your-api-key"
-export AMI_ORG="your-org-slug"
-export AMI_TEAM="your-team-slug"  # Optional - defaults to "default" team if not specified
-export AMI_WORKSPACE="production"
-export AMI_PROJECT="onboarding"
-export AMI_BASE_URL="https://api.ami.example.com"  # Optional, defaults to production
+export AMI_ORG="your-org"
+export AMI_WORKSPACE="staging"
+export AMI_PROJECT="support"
 ```
 
 ```python
 from memrail import AsyncAMIClient
 
-# Auto-loads from environment
-async with AsyncAMIClient() as client:
-    response = await client.decide(context=[...])
+async def inspect_configuration():
+    async with AsyncAMIClient() as client:
+        return client.config.workspace, client.config.project
 ```
 
-#### Method 2: Explicit Configuration
+Both `AMIClient` (synchronous) and `AsyncAMIClient` accept explicit configuration. An explicit `base_url` takes precedence over `AMI_BASE_URL`; otherwise the public endpoint is used. `use_env=False` disables environment fallbacks. Workspace/project arguments on a call override client configuration. Specify them explicitly for deployments and tenant-sensitive operations.
 
-```python
-from memrail import AsyncAMIClient
-
-async with AsyncAMIClient(
-    api_key="your-api-key",
-    org="your-org-slug",
-    team="your-team-slug",  # Optional - defaults to "default" team if not specified
-    workspace="production",
-    project="onboarding",
-    base_url="https://api.ami.example.com"
-) as client:
-    response = await client.decide(context=[...])
-```
-
-#### Method 3: Configuration Object
-
-```python
-from memrail import AsyncAMIClient
-from memrail.config import AMIConfig
-
-config = AMIConfig.create(
-    api_key="your-api-key",
-    org="your-org-slug",
-    team="your-team-slug",  # Optional - defaults to "default" team if not specified
-    workspace="production",
-    project="onboarding"
-)
-
-async with AsyncAMIClient.from_config(config) as client:
-    response = await client.decide(context=[...])
-```
-
-### Default Team Behavior
-
-If you don't specify a team, the API will automatically use the "default" team for your organization:
-
-```python
-# No team specified - uses "default" team automatically
-async with AsyncAMIClient(
-    api_key="your-api-key",
-    org="your-org-slug"
-    # team parameter omitted - defaults to "default"
-) as client:
-    response = await client.decide(context=[...])
-```
-
-This is particularly useful for single-tenant use cases where you only have one team.
-
-### Context Override
-
-Override workspace/project per-call:
-
-```python
-async with AsyncAMIClient(org="my-org", team="my-team") as client:
-    # Override workspace/project
-    response = await client.decide(
-        context=[...],
-        workspace="staging",  # Override
-        project="test-app"     # Override
-    )
-```
+The SDK uses `Authorization: AMI-Key <key>`, not Bearer authentication.
 
 ## ATOM Builders
 
-ATOMs are typed facts provided to the decision engine.
-
-### State ATOMs
-
-State ATOMs represent structured data from your system.
-
-```python
-from memrail.atoms import state
-
-# Simple state
-atoms = [
-    state("user.id", "U-123"),
-    state("user.tier", "premium"),
-    state("user.age", 25),
-    state("user.verified", True)
-]
-
-# Nested state (use dot notation)
-atoms = [
-    state("ticket.id", "TICKET-456"),
-    state("ticket.priority", "high"),
-    state("ticket.sla_remaining_hours", 2),
-    state("customer.tier", "vip"),
-    state("customer.lifetime_value", 50000)
-]
-```
-
-**Type Support**:
-- `str`: String values
-- `int`, `float`: Numeric values
-- `bool`: Boolean values
-- No complex types (dict, list) - flatten to dot notation
-
-**Dict Helper** (Recommended for Complex Data):
-
-For complex nested objects, use `atoms_from_dict` to automatically flatten:
-
-```python
-from memrail.atoms import atoms_from_dict
-
-# Complex object from your application
-user = {
-    "id": "U-123",
-    "tier": "premium",
-    "age": 25,
-    "verified": True,
-    "metadata": {
-        "signup_source": "organic",
-        "referrer": "google"
-    }
-}
-
-# Automatically creates: user.id, user.tier, user.age, user.verified, user.metadata.signup_source, etc.
-atoms = atoms_from_dict(user, prefix="user")
-```
-
-### Tag ATOMs
-
-Tag ATOMs represent categorizations and metadata.
-
-```python
-from memrail.atoms import tag
-
-# Simple tags
-atoms = [
-    tag("priority", "high"),
-    tag("channel", "email"),
-    tag("language", "spanish")
-]
-
-# ML-inferred tags
-sentiment = sentiment_classifier.predict(text)
-intent = intent_classifier.predict(message)
-
-atoms = [
-    tag("sentiment", sentiment),  # "positive", "negative", "neutral"
-    tag("intent", intent),         # "upgrade", "cancel", "support"
-    tag("category", "billing_issue")
-]
-```
-
-**Naming conventions**:
-- Lowercase
-- Underscores for multi-word (e.g., `user_segment`)
-- Semantic names (e.g., `sentiment`, not `ml_output_1`)
-
-### Event ATOMs
-
-Event ATOMs represent timestamped occurrences.
-
-```python
-from memrail.atoms import event
-from datetime import datetime, timezone
-
-# Simple event (timestamp = now)
-atoms = [
-    event("user.login.success")
-]
-
-# Event with explicit timestamp
-atoms = [
-    event("agent.sent.email", ts=datetime(2025, 1, 15, 10, 30, 0, tzinfo=timezone.utc))
-]
-
-# Event with attributes
-atoms = [
-    event("payment.completed.stripe",
-          ts=datetime.now(timezone.utc),
-          attributes={"amount": 1000, "currency": "USD"})
-]
-
-# Event with anchors (AMI v2 - role binding)
-atoms = [
-    event("agent.contacted.customer",
-          ts=datetime.now(timezone.utc),
-          anchor={
-              "subject": {"type": "agent", "id": "AGT-123"},
-              "object": {"type": "customer", "id": "CUST-456"}
-          })
-]
-```
-
-## EMU Management (CLI)
-
-EMUs are managed via the **`memrail` CLI** using an Infrastructure-as-Code workflow. The CLI is the preferred method for all EMU registration, updates, and lifecycle management.
-
-### Complete Command Reference
-
-| Command | Description |
-|---------|-------------|
-| **IaC Sync** | |
-| `memrail emu-pull` | Export remote EMUs to local JSONL files |
-| `memrail emu-plan` | Show diff between local and remote (like `terraform plan`) |
-| `memrail emu-apply` | Push local changes to remote (like `terraform apply`) |
-| `memrail emu-diff` | Show detailed diff for a specific EMU |
-| `memrail emu-validate` | Server-side ASR validation for all EMUs |
-| **EMU Management** | |
-| `memrail list-emus` | List EMUs in workspace/project |
-| `memrail get-emu` | Get details of a specific EMU |
-| `memrail change-state` | Change EMU lifecycle state (draft/shadow/canary/active/archived) |
-| `memrail archive` | Archive one or all EMUs |
-| `memrail register-emu` | Register EMUs from a file or folder |
-| `memrail update-emu` | Update EMU(s) from a JSON file |
-| **Tool Management** | |
-| `memrail tool-register` | Upload tool definitions from source files |
-| `memrail tool-list` | List discovered tool handlers locally |
-| `memrail tool-list-server` | List tools registered on server |
-| `memrail action-connectivity` | Check EMU actions can reach their tools |
-| **Workspace** | |
-| `memrail purge-workspace` | Purge all data in a workspace |
-| `memrail list-workspaces` | List workspaces |
-
-### IaC Sync Workflow (Primary)
-
-The `emu-pull` / `emu-plan` / `emu-apply` commands work like Terraform — pull remote state, edit locally, preview diff, push changes.
-
-```bash
-# 1. Pull existing EMUs from remote to local JSONL
-memrail emu-pull ./emus/ -w production -p my-project
-
-# 2. Edit ./emus/emus.jsonl (one EMU per line, JSON format)
-#    Add new lines, modify existing ones, delete lines to archive
-
-# 3. Preview changes (dry-run, like terraform plan)
-memrail emu-plan ./emus/ -w production -p my-project
-
-# 4. Apply changes to remote
-memrail emu-apply ./emus/ -w production -p my-project --yes
-
-# 5. (Optional) Run server-side ASR validation after apply
-memrail emu-apply ./emus/ -w production -p my-project --yes -V
-```
-
-#### JSONL Format
-
-Each line is a complete EMU definition:
-
-```jsonl
-{"emu_key":"vip_escalation","trigger":"state.customer.tier == 'vip' AND state.ticket.priority == 'high'","action":{"type":"tool_call","intent":"ESCALATE_VIP","tool":{"tool_id":"zendesk_escalator","version":"1.0.0","args":{"queue":"vip-support"}}},"policy":{"mode":"auto","priority":9,"cooldown":{"seconds":7200,"gate":"ack"}},"expected_utility":0.95,"confidence":0.88,"intent":"Escalate VIP customer tickets to specialist queue"}
-{"emu_key":"welcome_premium","trigger":"state.user.tier == 'premium'","action":{"type":"tool_call","intent":"SEND_WELCOME_EMAIL","tool":{"tool_id":"mailer","version":"1.0.0","args":{"template":"premium_welcome"}}},"expected_utility":0.9,"confidence":0.95,"intent":"Welcome new premium users with onboarding email"}
-```
-
-**Why JSONL:**
-- Git-diff friendly (one EMU per line)
-- PR-reviewable
-- No code execution required
-- CI/CD integration via pipeline
-- Lock file (`.emu.lock.jsonl`) tracks deployed state
-
-#### Lock File
-
-The `.emu.lock.jsonl` file tracks deployed state with content hashes:
-- **New EMUs**: In local file but not in lock → registers
-- **Modified EMUs**: Content hash differs → updates
-- **Deleted EMUs**: In lock but removed locally → archives
-
-Commit both `emus.jsonl` and `.emu.lock.jsonl` to version control.
-
-### Quick Registration (Single EMU)
-
-For registering EMUs from a file without the full IaC workflow:
-
-```bash
-# Register from a JSON file
-memrail register-emu ./emu.json -w production -p my-project
-
-# Register from a folder of JSON files
-memrail register-emu ./emus/ -w production -p my-project
-
-# Dry-run (validate without registering)
-memrail register-emu ./emu.json --dry-run
-```
-
-### Updating Existing EMUs
-
-Edit the JSONL file and re-apply — the IaC workflow detects changes automatically:
-
-```bash
-# 1. Edit emus.jsonl (modify trigger, action, policy, etc.)
-# 2. Preview what changed
-memrail emu-plan ./emus/ -w production -p my-project
-
-# 3. Apply the update
-memrail emu-apply ./emus/ -w production -p my-project --yes
-```
-
-For updating a single EMU from a JSON file:
-
-```bash
-memrail update-emu ./updated_emu.json -w production -p my-project
-```
-
-### Changing Lifecycle State
-
-Transition EMUs between lifecycle states:
-
-```bash
-# Promote to active
-memrail change-state vip_escalation active -w production -p support
-
-# Set to shadow mode (evaluate but don't execute)
-memrail change-state vip_escalation shadow -w production -p support
-
-# Temporarily disable
-memrail change-state vip_escalation inactive -w production -p support
-
-# Archive permanently
-memrail change-state vip_escalation archived -w production -p support --force
-```
-
-**Lifecycle progression**: `draft` → `shadow` → `canary` → `active` → `archived`
-
-Or set the target state when applying new EMUs:
-
-```bash
-# Apply all new EMUs directly as active
-memrail emu-apply ./emus/ --yes --target-state active
-
-# Apply new EMUs as shadow (for testing)
-memrail emu-apply ./emus/ --yes --target-state shadow
-```
-
-### Archiving EMUs
-
-```bash
-# Archive a specific EMU
-memrail archive vip_escalation -w production -p support
-
-# Archive all EMUs in project (with confirmation)
-memrail archive -w production -p support
-
-# Archive without confirmation
-memrail archive -w production -p support --force
-```
-
-### Listing & Inspecting EMUs
-
-```bash
-# List all EMUs in workspace/project
-memrail list-emus -w production -p my-project
-
-# Get details of a specific EMU
-memrail get-emu vip_escalation -w production -p support
-```
-
-### Versioning
-
-EMUs are versioned automatically. Each update via `emu-apply` or `update-emu` increments the version while preserving history:
-
-```bash
-# Initial apply creates v1
-memrail emu-apply ./emus/ --yes -w production -p support
-
-# Edit emus.jsonl (modify trigger)
-# Re-apply creates v2 (same key, updated trigger)
-memrail emu-apply ./emus/ --yes -w production -p support
-```
-
-### EMU Definition with Full Policy
-
-Example JSONL entry with all policy fields:
-
-```json
-{
-  "emu_key": "vip_escalation",
-  "trigger": "state.customer.tier == 'vip' AND state.ticket.priority == 'high'",
-  "action": {
-    "type": "tool_call",
-    "intent": "ESCALATE_TO_VIP_TEAM",
-    "tool": {
-      "tool_id": "zendesk_escalator",
-      "version": "2.1.0",
-      "args": { "queue": "vip-support", "priority": "critical" }
-    }
-  },
-  "policy": {
-    "mode": "auto",
-    "priority": 9,
-    "cooldown": { "seconds": 7200, "gate": "activation" },
-    "idempotency": { "enabled": true, "scope": ["customer.id", "ticket.id"] },
-    "exclusion_groups": ["escalation_actions"]
-  },
-  "expected_utility": 0.95,
-  "confidence": 0.88,
-  "decision_point": "triage",
-  "intent": "Escalate VIP customer tickets to specialist queue"
-}
-```
-
-### Action Types
-
-#### tool_call
-
-```json
-{
-  "type": "tool_call",
-  "intent": "SEND_EMAIL",
-  "tool": {
-    "tool_id": "mailer",
-    "version": "1.0.0",
-    "args": { "to": "{{user.email}}", "template": "welcome" }
-  }
-}
-```
-
-#### decision_prompt
-
-```json
-{
-  "type": "decision_prompt",
-  "message": "High-risk transaction from {{user.id}}. Approve?",
-  "options": [
-    {"id": "approve", "label": "Approve Transaction"},
-    {"id": "decline", "label": "Decline Transaction"},
-    {"id": "review", "label": "Manual Review"}
-  ]
-}
-```
-
-#### route
-
-```json
-{
-  "type": "route",
-  "destination": "spanish_support_queue",
-  "metadata": { "language": "spanish", "priority": "standard" }
-}
-```
-
-#### context_directive
-
-```json
-{
-  "type": "context_directive",
-  "directive": "Customer is VIP tier. Follow escalation protocol per KB #4521"
-}
-```
-
-## Invoking the Engine
-
-### Basic Invocation
-
-```python
-from memrail.atoms import state, tag
-
-async with AsyncAMIClient() as client:
-    response = await client.decide(
-        context=[
-            state("user.id", "U-123"),
-            state("user.tier", "premium"),
-            tag("intent", "upgrade")
-        ],
-        decision_point="onboarding-check",
-        workspace="production",
-        project="onboarding"
-    )
-
-    # Process selected actions
-    for item in response.selected:
-        print(f"EMU: {item.emu_key}")
-        print(f"Action: {item.action}")
-        print(f"Priority: {item.priority}")
-```
-
-### Using Dict Helper for Complex Data
-
-When you have complex nested data structures, use the `atoms_from_dict` helper to automatically flatten them:
+State keys use lowercase dotted names with 2–7 segments. Tag kinds may be single-segment. Keep classifications within a fixed taxonomy and label their actual source.
 
 ```python
 from memrail.atoms import state, tag, atoms_from_dict
 
-# Complex nested data from your application
-user_data = {
-    "id": "U-123",
-    "tier": "premium",
-    "age": 25,
-    "verified": True,
-    "preferences": {
-        "language": "en",
-        "timezone": "America/New_York"
-    }
-}
-
-ticket_data = {
-    "id": "TICKET-456",
-    "priority": "high",
-    "sla_remaining_hours": 2,
-    "status": "open"
-}
-
-# Convert dicts to state atoms automatically
-async with AsyncAMIClient() as client:
-    response = await client.decide(
-        context=[
-            # Dict helper flattens nested structures to dot notation
-            *atoms_from_dict(user_data, prefix="user"),      # Creates: user.id, user.tier, user.preferences.language, etc.
-            *atoms_from_dict(ticket_data, prefix="ticket"),  # Creates: ticket.id, ticket.priority, etc.
-
-            # Add tags manually
-            tag("intent", "upgrade"),
-            tag("channel", "email")
-        ],
-        workspace="production",
-        project="onboarding"
-    )
-```
-
-**What `atoms_from_dict` does:**
-```python
-# Input
-atoms_from_dict(
-    {"tier": "premium", "age": 25, "preferences": {"language": "en"}},
-    prefix="user"
-)
-
-# Output (equivalent to)
-[
-    state("user.tier", "premium"),
-    state("user.age", 25),
-    state("user.preferences.language", "en")
+context = [
+    state("ticket.id", "T-456"),
+    state("ticket.priority", "high", source="system"),
+    tag("sentiment", "negative", source="ml"),
+    *atoms_from_dict(
+        {"id": "U-123", "tier": "premium", "preferences": {"language": "en"}},
+        prefix="user",
+    ),
 ]
 ```
 
-**Benefits:**
-- Automatically flattens nested dicts to dot notation
-- Handles all supported types (str, int, float, bool)
-- Skips unsupported types (lists, dicts without flattening)
-- Cleaner code when working with existing data structures
+`atoms_from_dict` flattens nested dictionaries into state atoms. Use scalar facts that match the policy contract; do not silently convert an absent fact into an affirmative default. Source metadata is carried to the API, but the application must ensure model output cannot impersonate trusted facts.
 
-### With Options
+### Event ATOMs
 
-```python
-from memrail.models import InvokeOptions
-
-response = await client.decide(
-    context=[...],
-    options=InvokeOptions(
-        dry_run=True,      # Don't actually execute, just evaluate
-        top_k=5,           # Return top 5 matches (default: None - no limit)
-        explain=True       # Include explanation of why EMUs matched
-    ),
-    workspace="production",
-    project="onboarding"
-)
-```
-
-### With Tracing
-
-```python
-from memrail.models import TraceOptions
-
-response = await client.decide(
-    context=[...],
-    trace=TraceOptions(
-        enable=True,
-        include_all_emus=True  # Show all evaluated EMUs, not just selected
-    ),
-    workspace="production",
-    project="onboarding"
-)
-
-# Examine trace
-if response.trace:
-    print(f"Evaluated {len(response.trace.evaluated_emus)} EMUs")
-    for emu in response.trace.evaluated_emus:
-        print(f"  {emu.emu_key}: {emu.trigger_result}")
-```
-
-### With Context Timestamp
-
-Provide custom timestamp for time-based queries:
+Event topics use `subject.verb.object` or `project.subject.verb.object`. Supply a UTC timestamp. Anchors bind entity roles; attributes are available to event WHERE filters.
 
 ```python
 from datetime import datetime, timezone
+from memrail.atoms import event
 
-# Test with historical timestamp
-response = await client.decide(
-    context=[...],
-    context_ts=datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
-    workspace="production",
-    project="onboarding"
+email_sent = event(
+    "agent.sent.email",
+    ts=datetime.now(timezone.utc),
+    subject_anchor=("agent", "A-123"),
+    object_anchor=("email", "E-456"),
+    attributes={"user_id": "U-123", "template": "welcome"},
 )
 ```
 
-### With Idempotency
+## EMU Management (CLI)
 
-```python
-# First request
-response1 = await client.decide(
-    context=[state("order.id", "ORDER-123")],
-    idempotency_key="order-123-payment",
-    workspace="production",
-    project="checkout"
-)
+Use the [JSONL workflow](12-emu-jsonl-workflow.md) for production EMUs. SDK write methods are useful for isolated tests and authorized migration tooling, not an alternative source of deployed policy.
 
-# Second request (returns cached response)
-response2 = await client.decide(
-    context=[state("order.id", "ORDER-123")],
-    idempotency_key="order-123-payment",  # Same key
-    workspace="production",
-    project="checkout"
-)
+### CLI Commands
 
-# Check if cached
-if response2.idempotency and response2.idempotency.applied:
-    print("Returned cached response")
-```
+| Command | Purpose |
+|---|---|
+| `memrail emu-pull` | Export EMUs and the local sync lock |
+| `memrail emu-plan --strict` | Review changes and validate candidates before writes |
+| `memrail emu-apply --strict` | Validate the complete candidate set, then apply |
+| `memrail emu-plan --validate-only` | Local JSONL/DSL validation |
+| `memrail emu-validate` | Check already-deployed EMUs |
+| `memrail change-state` | Explicit lifecycle transition |
+| `memrail get-emu`, `memrail list-emus` | Inspect deployed definitions |
 
-### Response Handling
+New EMUs default to draft. `--target-state` controls new records; it does not silently promote existing records. An explicit JSONL state must agree with the requested lifecycle workflow. Omitting state preserves an existing lifecycle. Likewise, omitting `decision_point` preserves an existing binding; explicit null clears it.
 
-```python
-from memrail.models import InvokeResponse, SelectedItem
+## Invoking the Engine
 
-response: InvokeResponse = await client.decide(context=[...])
-
-# Check if any EMUs fired
-if response.selected:
-    for item in response.selected:
-        # Execute action based on type
-        if item.action.type == "tool_call":
-            await execute_tool(item.action.tool)
-        elif item.action.type == "decision_prompt":
-            await present_decision(item.action.message, item.action.options)
-        elif item.action.type == "route":
-            await route_to_queue(item.action.destination)
-        elif item.action.type == "context_directive":
-            await display_context(item.action.directive)
-else:
-    print("No EMUs fired")
-
-# Check invocation metadata
-print(f"Invocation ID: {response.invocation_id}")
-print(f"Processed in: {response.processing_time_ms}ms")
-```
-
-## Event Ingestion
-
-Events must be ingested separately (not via invoke).
-
-### Single Event Ingestion
-
-```python
-from datetime import datetime, timezone
-
-async with AsyncAMIClient() as client:
-    await client.ingest_event(
-        subject="agent",
-        verb="sent",
-        object="email",
-        ts=datetime.now(timezone.utc),
-        attributes={
-            "recipient": "customer@example.com",
-            "template": "welcome_email"
-        },
-        anchor={
-            "subject": {"type": "agent", "id": "AGT-123"},
-            "object": {"type": "email", "id": "EMAIL-456"}
-        },
-        workspace="production",
-        project="support"
-    )
-```
-
-### Batch Event Ingestion
-
-```python
-from memrail.models import EventInput
-
-events = [
-    EventInput(
-        subject="user",
-        verb="login",
-        object="app",
-        ts=datetime.now(timezone.utc)
-    ),
-    EventInput(
-        subject="user",
-        verb="clicked",
-        object="button",
-        ts=datetime.now(timezone.utc),
-        attributes={"button_id": "checkout"}
-    ),
-]
-
-await client.batch_ingest_events(
-    events=events,
-    workspace="production",
-    project="analytics"
-)
-```
-
-### Event Ingestion Patterns
-
-#### Pattern 1: Inline with Business Logic
-
-```python
-async def handle_ticket_created(ticket_data):
-    # 1. Create ticket
-    ticket = await ticket_system.create(ticket_data)
-
-    # 2. Ingest event
-    await ami_client.ingest_event(
-        subject="ticket",
-        verb="created",
-        object="zendesk",
-        ts=datetime.now(timezone.utc),
-        attributes={"ticket_id": ticket.id}
-    )
-
-    # 3. Decide
-    response = await ami_client.decide(
-        context=[
-            state("ticket.id", ticket.id),
-            state("ticket.priority", ticket.priority),
-            state("customer.tier", ticket.customer.tier)
-        ]
-    )
-
-    # 4. Execute actions
-    for item in response.selected:
-        await execute_action(item.action)
-```
-
-#### Pattern 2: Async Event Bus
-
-```python
-# Publisher
-async def on_user_login(user_id):
-    await event_bus.publish("user.login.success", {"user_id": user_id})
-
-# Consumer (separate service)
-async def consume_events():
-    async for event in event_bus.subscribe("user.login.success"):
-        await ami_client.ingest_event(
-            subject="user",
-            verb="login",
-            object="app",
-            ts=event.timestamp,
-            attributes={"user_id": event.data["user_id"]}
-        )
-```
-
-## Complete Workflows
-
-### Workflow 1: Support Ticket Automation
+`decide` evaluates policy and returns selections; it does not call business tools.
 
 ```python
 from memrail import AsyncAMIClient
-from memrail.atoms import atoms_from_dict, tag, event
+from memrail.atoms import state, tag
+from memrail.models import InvokeOptions, TraceOptions
+
+async def inspect_ticket():
+    async with AsyncAMIClient(workspace="staging", project="support") as client:
+        response = await client.decide(
+            context=[
+                state("ticket.id", "T-456"),
+                state("ticket.priority", "high"),
+                tag("sentiment", "negative", source="ml"),
+            ],
+            decision_point="triage",
+            options=InvokeOptions(dry_run=True),
+            trace=TraceOptions(enable=True),
+        )
+        for item in response.selected:
+            print(item.emu_key, item.emu_version, item.lifecycle_state)
+            print(item.policy, item.action)
+        for candidate in (response.trace or {}).get("candidates", []):
+            print(candidate["emu_key"], candidate["passed"], candidate["suppressed_by"])
+        return response
+```
+
+A named `decision_point` selects EMUs bound to that exact point. Provision the matching binding in JSONL; it is not just a trace label. The HTTP field is `context_atoms`; SDK methods accept `context` or its `atoms` alias, not both.
+
+### With Options
+
+`InvokeOptions` exposes `dry_run`, `top_k`, `human_consent`, `store_read_cutoff_ts`, `pin_registry_version`, and `pin_policy_version`. `TraceOptions` takes `enable`; there is no `explain` or `include_all_emus` option.
+
+Top-k is subject to arbitration and exclusion-group constraints, not an unconditional number of actions. A trace candidate's `passed` value alone does not mean it was selected: also inspect `suppressed_by` and the response selections.
+
+### With Context Timestamp
+
+Pass a timezone-aware `context_ts` for temporal evaluation. Event windows and retained history are evaluated relative to that context. This does not freeze the registry, policy, cooldowns, or idempotency state for historical replay.
+
+### With Idempotency
+
+Use an invocation `idempotency_key` when retrying the same logical request. During its cache lifetime, the key is bound to the normalized request and tenant/project scope. Reusing it with a different context, point, or options returns a conflict; choose a new key for a genuinely new request.
+
+Invocation caching is distinct from `policy.idempotency` and executor/business deduplication. A cached selection is not proof that a tool has or has not executed.
+
+### Response Handling
+
+SDK selections expose `action`, `policy`, `lifecycle_state`, `emu_version`, `activation_id`, and `score`. The HTTP selection uses `payload`, which the SDK adapts to `action`. Do not assume a `priority` or `processing_time_ms` response field.
+
+For execution, use [Tool Registry & Executors](09-tool-registry-executors.md), which preserves policy and lifecycle handling. Do not replace it with a loop that blindly dispatches every selected tool.
+
+## Event Ingestion
+
+Persist events separately from invocation. Building an event atom is not the same as storing it.
+
+```python
+from memrail import AsyncAMIClient
+from memrail.atoms import event
 from datetime import datetime, timezone
 
-async def handle_ticket_created(ticket):
-    async with AsyncAMIClient() as client:
-        # 1. Ingest event
-        await client.ingest_event(
-            subject="ticket",
-            verb="created",
-            object="zendesk",
+async def record_email():
+    async with AsyncAMIClient(workspace="staging", project="support") as client:
+        return await client.emit_event(event(
+            "agent.sent.email",
             ts=datetime.now(timezone.utc),
-            workspace="production",
-            project="support"
-        )
-
-        # 2. Build atoms using dict helper (cleaner for complex objects)
-        ticket_data = {
-            "id": ticket.id,
-            "priority": ticket.priority,
-            "sla_remaining_hours": ticket.sla_remaining_hours,
-            "status": ticket.status
-        }
-
-        customer_data = {
-            "id": ticket.customer.id,
-            "tier": ticket.customer.tier,
-            "lifetime_value": ticket.customer.lifetime_value
-        }
-
-        atoms = [
-            # Use dict helper to flatten nested data
-            *atoms_from_dict(ticket_data, prefix="ticket"),
-            *atoms_from_dict(customer_data, prefix="customer"),
-
-            # Add ML tags manually
-            tag("category", ticket.category),
-            tag("language", ticket.language)
-        ]
-
-        # 3. Invoke decision engine
-        response = await client.decide(
-            context=atoms,
-            workspace="production",
-            project="support"
-        )
-
-        # 4. Execute selected actions
-        for item in response.selected:
-            if item.action.type == "tool_call":
-                await execute_tool(item.action.tool)
-            elif item.action.type == "route":
-                await route_ticket(ticket.id, item.action.destination)
-            elif item.action.type == "decision_prompt":
-                await notify_agent(item.action.message, item.action.options)
-
-async def execute_tool(tool_spec):
-    """Execute tool based on tool_id."""
-    if tool_spec.tool_id == "zendesk_escalator":
-        await escalate_ticket(**tool_spec.args)
-    elif tool_spec.tool_id == "email_service":
-        await send_email(**tool_spec.args)
-    # ... more tools
+            attributes={"user_id": "U-123"},
+        ))
 ```
 
-### Workflow 2: User Onboarding
+For a batch, call `await client.emit_events(events, workspace=..., project=...)` with a list of EventAtom objects. Emit the actual outcome after the application completes an action. Do not blindly retry ingestion: duplicate events can affect COUNT rules.
 
-```python
-from memrail.atoms import atoms_from_dict, tag
+## Complete Workflows
 
-async def check_user_onboarding(user_id):
-    # Fetch user data
-    user = await user_service.get_user(user_id)
+A typical support handler loads trusted ticket/customer facts, adds constrained classification tags, invokes the matching decision point, and executes through the configured client helper. Record success/failure events with entity identifiers and preserve execution results for monitoring.
 
-    async with AsyncAMIClient() as client:
-        # Build user state from dict
-        user_data = {
-            "id": user.id,
-            "tier": user.subscription_tier,
-            "onboarding_step": user.onboarding_step,
-            "signup_hours_ago": (datetime.now(timezone.utc) - user.signup_at).total_seconds() / 3600,
-            "verified": user.email_verified,
-            "signup_completed": True
-        }
-
-        atoms = [
-            *atoms_from_dict(user_data, prefix="user")
-        ]
-
-        # Check if ML tags needed
-        if user.last_message:
-            intent = intent_classifier.predict(user.last_message)
-            atoms.append(tag("intent", intent))
-
-        # Decide
-        response = await client.decide(
-            context=atoms,
-            workspace="production",
-            project="onboarding"
-        )
-
-        # Process actions
-        for item in response.selected:
-            if item.action.type == "tool_call":
-                await execute_onboarding_action(item.action)
-```
-
-### Workflow 3: ML-Augmented Support
-
-```python
-async def handle_support_message(message_data):
-    # 1. Run ML inference
-    sentiment = sentiment_classifier.predict(message_data.text)
-    intent = intent_classifier.predict(message_data.text)
-    category = topic_classifier.predict(message_data.text)
-
-    async with AsyncAMIClient() as client:
-        # 2. Build atoms with ML tags
-        atoms = [
-            state("ticket.id", message_data.ticket_id),
-            state("customer.tier", message_data.customer_tier),
-            tag("sentiment", sentiment),      # ML-inferred
-            tag("intent", intent),             # ML-inferred
-            tag("category", category),         # ML-inferred
-            tag("channel", message_data.channel)
-        ]
-
-        # 3. Decide
-        response = await client.decide(
-            context=atoms,
-            workspace="production",
-            project="support"
-        )
-
-        # 4. Execute actions
-        for item in response.selected:
-            await execute_action(item)
-```
+The complete, executable integration shape is in [the combined execution example](09-tool-registry-executors.md#decide-and-execute). Supply real handlers with business authorization and operation-level deduplication before enabling effects.
 
 ## Testing & Debugging
 
 ### Dry Run Mode
 
-Test triggers without executing actions:
-
-```python
-response = await client.decide(
-    context=[...],
-    options=InvokeOptions(dry_run=True),
-    workspace="production",
-    project="support"
-)
-
-# Examine what would fire
-print(f"Would execute {len(response.selected)} EMUs:")
-for item in response.selected:
-    print(f"  - {item.emu_key} (priority: {item.priority})")
-```
+Use `InvokeOptions(dry_run=True)` to evaluate without activation locks or business execution. The combined helper also skips handlers and ACK. Diagnostic traces/accounting may still be written; dry-run is not a promise of zero API activity.
 
 ### Tracing
 
-Debug trigger evaluation:
-
-```python
-response = await client.decide(
-    context=[...],
-    trace=TraceOptions(enable=True, include_all_emus=True),
-    workspace="production",
-    project="support"
-)
-
-# Examine all evaluated EMUs
-if response.trace:
-    for emu in response.trace.evaluated_emus:
-        print(f"EMU: {emu.emu_key}")
-        print(f"  Trigger: {emu.trigger}")
-        print(f"  Result: {emu.trigger_result}")
-        if not emu.trigger_result and emu.failure_reason:
-            print(f"  Reason: {emu.failure_reason}")
-```
+Use `TraceOptions(enable=True)`; `response.trace` is a dictionary with `candidates`, not an object exposing `evaluated_emus`. Inspect reasons and suppression independently of trigger results.
 
 ### Shadow Mode Testing
 
-Deploy an EMU in shadow mode for evaluation without execution:
-
-```bash
-# Apply EMU in shadow state (evaluates but doesn't execute)
-memrail emu-apply ./emus/ --yes --target-state shadow -w production -p support
-```
-
-Then monitor evaluation via tracing:
-
-```python
-# Monitor shadow EMU evaluation
-response = await client.decide(
-    context=[...],
-    trace=TraceOptions(enable=True),
-    workspace="production",
-    project="support"
-)
-
-# Check if shadow EMU matched
-for emu in response.trace.evaluated_emus:
-    if emu.emu_key == "new_feature":
-        print(f"Shadow EMU matched: {emu.trigger_result}")
-```
-
-When ready to promote:
-
-```bash
-# Promote from shadow to active
-memrail change-state new_feature active -w production -p support
-```
+Server-side shadow EMUs appear in trace candidates, not executable selections. They are arbitrated separately from live EMUs. Compare expected matches and negative cases in tracing, then use an explicit reviewed lifecycle transition.
 
 ### Unit Testing
 
-```python
-import pytest
-from memrail import AsyncAMIClient
-from memrail.atoms import state, tag
-
-@pytest.mark.asyncio
-async def test_vip_escalation_fires():
-    """Test VIP escalation EMU fires for VIP + high priority."""
-    async with AsyncAMIClient() as client:
-        response = await client.decide(
-            context=[
-                state("customer.tier", "vip"),
-                state("ticket.priority", "high")
-            ],
-            options=InvokeOptions(dry_run=True),
-            workspace="test",
-            project="support"
-        )
-
-        # Assert EMU fired
-        assert len(response.selected) >= 1
-        emu_keys = [item.emu_key for item in response.selected]
-        assert "support.vip_escalation" in emu_keys
-
-@pytest.mark.asyncio
-async def test_vip_escalation_does_not_fire_for_standard():
-    """Test VIP escalation does NOT fire for standard tier."""
-    async with AsyncAMIClient() as client:
-        response = await client.decide(
-            context=[
-                state("customer.tier", "standard"),  # Not VIP
-                state("ticket.priority", "high")
-            ],
-            options=InvokeOptions(dry_run=True),
-            workspace="test",
-            project="support"
-        )
-
-        # Assert EMU did NOT fire
-        emu_keys = [item.emu_key for item in response.selected]
-        assert "support.vip_escalation" not in emu_keys
-```
+Use a mocked transport for SDK unit tests and an isolated project for integration tests. Cover positive, negative, missing/null, boundary, duplicate, shadow, canary, approval, and dry-run cases relevant to the policy. A test that calls a real service with credentials is an integration test, not an isolated unit test.
 
 ## Error Handling
 
-### Common Errors
+Catch `AMIError` from `memrail.errors` or narrower types such as `AMIBadRequest`, `AMIConflict`, `AMIUnauthorized`, `AMIForbidden`, `AMINotFound`, `AMIUnprocessable`, `AMIRateLimited`, and `AMIServerError`.
 
-```python
-from memrail.errors import (
-    AMIBadRequest,       # Invalid request (e.g., bad DSL syntax)
-    AMINotFound,         # Resource not found (workspace, project, EMU)
-    AMIUnauthorized,     # Invalid API key
-    AMIForbidden,        # Insufficient permissions
-    AMIUnprocessable,    # Validation failed
-    AMIServerError,      # Server error
-    AMIError             # Base error class
-)
-
-try:
-    response = await client.decide(
-        context=[state("user.id", "U-123")],
-        workspace="production",
-        project="support"
-    )
-except AMIBadRequest as e:
-    print(f"Bad request: {e}")
-    # Handle invalid request
-except AMINotFound as e:
-    print(f"Not found: {e}")
-    # Handle missing workspace/project
-except AMIUnauthorized as e:
-    print(f"Unauthorized: {e}")
-    # Check API key
-except AMIError as e:
-    print(f"AMI error: {e}")
-    # Generic error handling
-```
-
-### Retry Logic
-
-```python
-from memrail.errors import AMIServerError
-import asyncio
-
-async def decide_with_retry(client, context, max_retries=3):
-    """Decide with exponential backoff retry."""
-    for attempt in range(max_retries):
-        try:
-            return await client.decide(context=context)
-        except AMIServerError as e:
-            if attempt == max_retries - 1:
-                raise
-            wait_time = 2 ** attempt  # Exponential backoff
-            print(f"Retry {attempt + 1}/{max_retries} after {wait_time}s...")
-            await asyncio.sleep(wait_time)
-```
-
-### Validation Before Deployment
-
-Use the CLI to validate EMUs before deploying:
-
-```bash
-# Local DSL syntax validation (no API call)
-memrail emu-plan ./emus/ --validate-only
-
-# Server-side ASR validation (checks reachability, schema, etc.)
-memrail emu-validate -w production -p my-project
-```
+Use the SDK's bounded retry configuration where appropriate. Do not retry validation/authentication failures unchanged. Retrying a business handler after an uncertain outcome requires application-level duplicate protection; request-level idempotency alone does not provide it.
 
 ## Tool Management
 
-Register and manage tool definitions used by EMU actions:
-
 ```bash
-# Discover tools in source files (regex scan)
-memrail tool-list --path ./src/
-
-# Discover tools via import (reads real schemas)
-memrail tool-list --path ./src/ --import
-
-# Register tools with the server
-memrail tool-register --path ./src/ --import
-
-# List tools registered on server
-memrail tool-list-server
-
-# Check that EMU actions can reach their registered tools
-memrail action-connectivity -w production -p my-project
+memrail tool-list --help
+memrail tool-register --help
+memrail action-connectivity -w staging -p support
 ```
 
----
+Follow the [tool registry reference](09-tool-registry-executors.md) for module-level schema discovery, project visibility, handlers, and execution configuration.
 
 ## Workspace Management
 
 ### Purging a Workspace
 
-Reset all data in a workspace without deleting the workspace itself. Useful for dev/testing resets.
-
-**Requires org-level API key.**
+Purging is destructive and requires an org-level API key. Only do it when the user authorizes that exact workspace and target set; do not infer permission from a debugging request.
 
 ```bash
-# Purge everything (interactive confirmation)
-memrail purge-workspace production
-
-# Skip confirmation (CI/CD)
-memrail purge-workspace staging --yes
-
-# Selective purge
-memrail purge-workspace development --targets emus,traces,events --yes
-
-# JSON output
-memrail purge-workspace development --yes --json
+memrail purge-workspace development --targets emus,traces,events
 ```
 
-**Available targets:** `emus`, `traces`, `events`, `asr`, `tools`, `cooldowns`, `prompts`, `hindsight`, `decision_points`
+Inspect the confirmation and installed command's `--help`. Use `--yes` only in an already-authorized reset workflow.
 
 ## EMU Validation Reports
 
-Validate EMUs to check trigger reachability, action variable placeholders, and get remediation suggestions. This is the primary debugging tool for identifying what needs to be fixed in your EMUs or registered tools.
-
-### CLI Validation (Recommended)
+### Agent Validation Workflow
 
 ```bash
-# Validate all EMUs in a workspace (server-side ASR checks)
-memrail emu-validate -w production -p my-project
-
-# Validate during plan (local DSL syntax check)
-memrail emu-plan ./emus/ --validate-only
-
-# Validate during apply (server-side, post-deploy)
-memrail emu-apply ./emus/ --yes -V
-
-# JSON output for CI/CD
-memrail emu-validate -w production -p my-project --json | jq '.reports[] | select(.passed == false)'
-
-# Exit code 1 if any EMU has severity=error (useful for CI gates)
-memrail emu-validate -w production -p api || echo "Validation errors found"
+memrail emu-plan ./emus/ -w staging -p support --strict
+memrail emu-apply ./emus/ -w staging -p support --strict --yes
 ```
+
+Strict validation rejects errors, missing reports, or unavailable validation before writes. `--validate` requests diagnostics but is not the strict gate. See [JSONL validation](12-emu-jsonl-workflow.md#candidate-validation) for deployment details.
 
 ### SDK Validation (Programmatic)
 
-```python
-# Validate a single EMU
-report = client.get_emu_validator("welcome-email", workspace="production")
-if not report["passed"]:
-    for w in report["warnings"]:
-        print(f"[{w['severity']}] {w['code']}: {w['message']}")
-        if w.get("remediation"):
-            print(f"  Fix: {w['remediation']}")
-```
+For proposed definitions, `await client.validate_emu_candidates(candidates, workspace=..., project=...)` performs scoped read-only validation. Use complete wire-format EMUs, including explicit policy and intended state; inspect each `reports[].report`.
 
-### Workspace Bulk Validation
-
-```python
-# Validate ALL EMUs in a workspace
-result = client.validate_workspace_emus(workspace="production")
-print(f"Validated {result['total']} EMUs")
-
-for item in result["reports"]:
-    report = item["report"]
-    status = "PASS" if report["passed"] else "FAIL"
-    print(f"  [{status}] {item['emu_key']} ({item['state']})")
-    for w in report.get("warnings", []):
-        if w["severity"] == "error":
-            print(f"    ERROR: {w['message']}")
-```
-
-### Validation Report Fields
-
-- `passed`: True if no errors (warnings are OK)
-- `warnings`: List with `code`, `severity`, `message`, `remediation`
-  - Warning codes: `WARN-NEVER-SEEN`, `WARN-SCHEMA-MISMATCH`, `WARN-LOW-REACH`, etc.
-- `reachability`: `{total_dependencies, reachable_dependencies, unreachable_dependencies}`
-- `action_variables`: Per-variable validation (whether action placeholders reference observed atoms)
-- `alias_suggestions`: Suggested fixes for unrecognized atom names (typo detection)
-
-### HTTP API
-
-```
-GET /v1/emus/{emu_key}/validator    # Single EMU validation
-GET /v1/emus/validator              # All EMUs in workspace (bulk)
-POST /v1/.../emus?validate=true     # Inline validation on register
-PUT  /v1/.../emus/{key}?validate=true  # Inline validation on update
-```
-
-Both GET endpoints accept `X-AMI-Workspace` header to scope validation.
-The `?validate=true` query param on POST/PUT returns a `validation` field in the response.
+For existing EMUs, use the CLI's `emu-validate` command or the installed client's available validator methods. Do not assume methods exposed on the synchronous client also exist on the asynchronous client.
 
 ### Warning Code Reference
 
-| Code | Meaning | Agent Action |
-|------|---------|-------------|
-| `WARN-NEVER-SEEN` | Atom not observed in ASR | Ensure ingestion pipeline emits this atom |
-| `WARN-SCHEMA-MISMATCH` | Type/operator incompatibility | Fix trigger operator or atom type |
-| `WARN-LOW-REACH` | Atom stale (>7 days) | Verify pipeline is running |
-| `WARN-SEMANTIC-EQUIVALENT` | Wrong event name, similar exists | Use suggested correct name |
-| `WARN-ACTION-TOOL-NOT-FOUND` | Tool not in executor registry | Register via `memrail tool-register` |
-| `WARN-ACTION-PLACEHOLDER-NEVER-SEEN` | Action template refs unobserved atom | Ensure atom is emitted |
-| `WARN-POLICY-GAP` | Missing cooldown/idempotency | Add policy fields for auto-mode EMUs |
+| Code | Meaning | Response |
+|---|---|---|
+| `WARN-NEVER-SEEN` | ATOM not observed in the registry | Check producer, spelling, and scope |
+| `WARN-SCHEMA-MISMATCH` | Type/operator mismatch | Correct the contract or expression |
+| `WARN-LOW-REACH` | Stale/low-reach dependency | Check the producer and expected traffic |
+| `WARN-ACTION-TOOL-NOT-FOUND` | Registered tool unavailable | Check tool registration/project visibility |
+| `WARN-ACTION-PLACEHOLDER-NEVER-SEEN` | Unobserved template input | Ensure the invocation provides that fact |
+| `WARN-POLICY-GAP` | Execution controls absent or ineffective | Review cooldown and structured idempotency |
 
-### Iterative Fix Loop
-
-```
-Edit JSONL → memrail emu-apply --yes -V → read warnings → fix JSONL → repeat until clean
-```
-
----
+Reports provide evidence, not automatic proof of business correctness. Review any proposed remediation before changing policy.
 
 ## Best Practices
 
-1. **Use IaC sync workflow**: Prefer `emu-pull/plan/apply` for all EMU management
-2. **Commit lock files**: Track `.emu.lock.jsonl` in version control for team coordination
-3. **Validate before deploying**: Use `memrail emu-plan --validate-only` and `memrail emu-validate`
-4. **Start in shadow mode**: Deploy new EMUs with `--target-state shadow`, promote after testing
-5. **Use context manager**: Always use `async with` for automatic resource cleanup
-6. **Enable tracing in development**: Use `trace=True` to debug trigger evaluation
-7. **Test with dry_run**: Test triggers without side effects using `dry_run=True`
-8. **Handle errors gracefully**: Catch specific exception types
-9. **Document ATOM dependencies**: Clearly document what atoms each EMU needs
-10. **Use idempotency for critical operations**: Prevent duplicate actions with idempotency keys
-11. **Monitor invocation performance**: Track `processing_time_ms` in responses
-12. **Register tools first**: Use `memrail tool-register` before deploying EMUs that reference tools
-
----
+Keep policy in reviewed JSONL, preserve provenance and selection metadata, and test execution separately from matching. Collect outcome evidence for improvement; keep deployment and lifecycle changes explicit.

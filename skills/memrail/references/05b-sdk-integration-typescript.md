@@ -1,838 +1,200 @@
 # SDK Integration (TypeScript)
 
-**Using the TypeScript SDK to Build and Invoke EMUs**
-
-## Table of Contents
-
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [ATOM Builders](#atom-builders)
-- [EMU Management](#emu-management)
-- [Invoking the Engine](#invoking-the-engine)
-- [Event Ingestion](#event-ingestion)
-- [Complete Workflows](#complete-workflows)
-- [Testing & Debugging](#testing--debugging)
-- [Error Handling](#error-handling)
-- [CLI Commands](#cli-commands)
-- [Workspace Management](#workspace-management)
-- [EMU Validation Reports](#emu-validation-reports)
-- [Best Practices](#best-practices)
-
 ## Installation
 
-### Requirements
-
-- Node.js 18+
-- npm, yarn, or pnpm
-
-### Install SDK
+Install `@memrail/sdk` in your TypeScript project:
 
 ```bash
-# Using npm
 npm install @memrail/sdk
-
-# Using yarn
-yarn add @memrail/sdk
-
-# Using pnpm
-pnpm add @memrail/sdk
 ```
 
-### Verify Installation
-
-```typescript
-import { AMIClient } from '@memrail/sdk';
-console.log('AMI SDK loaded');
-```
+The `memrail` CLI is distributed with the Python package, not the npm package. Install it in a virtual environment for the [JSONL workflow](12-emu-jsonl-workflow.md). Check installed versions and command help before relying on a new capability: merged source and published packages may differ.
 
 ## Configuration
 
-### API Key Setup
-
-Obtain API key from AMI dashboard or bootstrap script:
-
-```bash
-# Bootstrap creates org + keys
-uv run python scripts/bootstrap_org.py --name "My Org" --region us-miami-1
-```
-
-### Configuration Methods
-
-#### Method 1: Environment Variables (Recommended)
-
-```bash
-export AMI_API_KEY="your-api-key"
-export AMI_ORG="your-org-slug"
-export AMI_TEAM="your-team-slug"  # Optional - defaults to "default" team
-export AMI_WORKSPACE="production"
-export AMI_PROJECT="onboarding"
-export AMI_BASE_URL="https://api.ami.example.com"  # Optional
-```
-
-```typescript
-import { AMIClient } from '@memrail/sdk';
-
-// Auto-loads from environment
-const client = new AMIClient();
-const response = await client.decide({ context: [...] });
-```
-
-#### Method 2: Explicit Configuration
+Keep credentials outside source control. The client reads `AMI_API_KEY`, `AMI_ORG`, `AMI_TEAM`, `AMI_WORKSPACE`, `AMI_PROJECT`, and `AMI_BASE_URL` when environment loading is enabled.
 
 ```typescript
 import { AMIClient } from '@memrail/sdk';
 
 const client = new AMIClient({
-    apiKey: "your-api-key",
-    org: "your-org-slug",
-    team: "your-team-slug",  // Optional - defaults to "default" team
-    workspace: "production",
-    project: "onboarding",
-    baseUrl: "https://api.ami.example.com"
-});
-
-const response = await client.decide({ context: [...] });
-```
-
-#### Method 3: Configuration Object
-
-```typescript
-import { AMIClient, AMIConfig } from '@memrail/sdk';
-
-const config = AMIConfig.create({
-    apiKey: "your-api-key",
-    org: "your-org",
-    team: "your-team",
-    workspace: "production",
-    project: "onboarding"
-});
-
-const client = new AMIClient(config);
-const response = await client.decide({ context: [...] });
-```
-
-### Default Team Behavior
-
-If you don't specify a team, the API automatically uses the "default" team:
-
-```typescript
-// No team specified - uses "default" team automatically
-const client = new AMIClient({
-    apiKey: "your-api-key",
-    org: "your-org-slug"
-    // team omitted - defaults to "default"
-});
-```
-
-### Context Override
-
-Override workspace/project per-call:
-
-```typescript
-const client = new AMIClient({ org: "my-org", team: "my-team" });
-
-// Override workspace/project
-const response = await client.decide({
-    context: [...],
     workspace: "staging",
-    project: "test-app"
+    project: "support"
 });
 ```
+
+Explicit configuration overrides environment values. Workspace/project arguments on individual calls override client configuration. Use explicit scope for deployments and tenant-sensitive operations.
 
 ## ATOM Builders
 
-ATOMs are typed facts provided to the decision engine.
-
-### State ATOMs
+State keys use lowercase dotted names. Tag kinds may be single-segment. Preserve actual provenance and keep ML classifications within a fixed taxonomy.
 
 ```typescript
-import { state } from '@memrail/sdk';
+import { state, tag, atomsFromDict } from '@memrail/sdk';
 
-// Simple state
-const atoms = [
-    state("user.id", "U-123"),
-    state("user.tier", "premium"),
-    state("user.age", 25),
-    state("user.verified", true)
+const context = [
+    state("ticket.id", "T-456"),
+    state("ticket.priority", "high", "system"),
+    tag("sentiment", "negative", "ml"),
+    ...atomsFromDict({
+        id: "U-123", tier: "premium", preferences: { language: "en" }
+    }, "user")
 ];
 ```
 
-**Type Support**: `string`, `number`, `boolean`. No complex types — flatten to dot notation.
-
-**Dict Helper** (Recommended for Complex Data):
-
-```typescript
-import { atomsFromDict } from '@memrail/sdk';
-
-const user = {
-    id: "U-123",
-    tier: "premium",
-    age: 25,
-    verified: true,
-    metadata: {
-        signup_source: "organic",
-        referrer: "google"
-    }
-};
-
-// Automatically creates: user.id, user.tier, user.age, user.verified, user.metadata.signup_source, etc.
-const atoms = atomsFromDict(user, "user");
-```
-
-### Tag ATOMs
-
-```typescript
-import { tag } from '@memrail/sdk';
-
-const atoms = [
-    tag("priority", "high"),
-    tag("channel", "email"),
-    tag("language", "spanish")
-];
-
-// ML-inferred tags
-const sentiment = await sentimentClassifier.predict(text);
-const atoms = [
-    tag("sentiment", sentiment),
-    tag("intent", intent),
-    tag("category", "billing_issue")
-];
-```
+`atomsFromDict` flattens nested objects. Match the policy's expected scalar types rather than silently converting absent facts into affirmative defaults. The application must prevent model output from impersonating trusted facts.
 
 ### Event ATOMs
 
 ```typescript
 import { event } from '@memrail/sdk';
 
-// Event with timestamp
-const atoms = [
-    event("agent.sent.email", { ts: new Date() })
-];
-
-// Event with attributes
-const atoms = [
-    event("payment.completed.stripe", {
-        ts: new Date(),
-        attributes: { amount: 1000, currency: "USD" }
-    })
-];
-
-// Event with anchors
-const atoms = [
-    event("agent.contacted.customer", {
-        ts: new Date(),
-        subjectAnchor: ["agent", "AGT-123"],
-        objectAnchor: ["customer", "CUST-456"]
-    })
-];
+const emailSent = event("agent.sent.email", {
+    ts: new Date(),
+    subject_anchor: ["agent", "A-123"],
+    object_anchor: ["email", "E-456"],
+    attributes: { user_id: "U-123", template: "welcome" }
+});
 ```
+
+Use subject.verb.object topics, timestamps, and entity identifiers consistently. Building an event atom does not persist it.
 
 ## EMU Management
 
-### JSONL Sync Workflow (Recommended)
-
-EMUs are managed via JSONL files using the IaC sync workflow:
+Use [JSONL sync](12-emu-jsonl-workflow.md) for production definitions. SDK registration/update methods are for isolated tests and authorized migration tooling.
 
 ```bash
-# Pull existing EMUs from remote
-memrail emu-pull ./emus/ -w production -p my-project
-
-# Edit ./emus/emus.jsonl (one EMU per line)
-
-# Preview changes (like terraform plan)
-memrail emu-plan ./emus/
-
-# Apply changes to remote
-memrail emu-apply ./emus/ --yes
+memrail emu-pull ./emus/ -w staging -p support
+memrail emu-plan ./emus/ -w staging -p support --strict
+memrail emu-apply ./emus/ -w staging -p support --strict --yes
 ```
 
-### SDK Registration (Scripting/Testing Only)
+New records default to draft. `--target-state` controls new records, not silent promotion of existing ones. Explicit JSONL lifecycle intent must agree with the chosen transition workflow; omission preserves existing state. An omitted `decision_point` preserves its existing binding, while explicit null clears it.
 
-```typescript
-const response = await client.registerEMU({
-    emuKey: "welcome_premium_users",
-    trigger: "state.user.tier == 'premium'",
-    action: {
-        type: "tool_call",
-        intent: "SEND_WELCOME_EMAIL",
-        tool: {
-            tool_id: "mailer",
-            version: "1.0.0",
-            args: { template: "premium_welcome" }
-        }
-    },
-    expectedUtility: 0.9,
-    confidence: 0.95,
-    intent: "Welcome new premium users",
-    decisionPoint: "onboarding-check",
-    workspace: "production",
-    project: "onboarding"
-});
-```
-
-### Updating Existing EMUs
-
-```typescript
-const response = await client.updateEMU({
-    emuKey: "vip_escalation",
-    trigger: "state.customer.tier == 'vip' AND state.ticket.priority >= 'high'",
-    expectedUtility: 0.95,
-    confidence: 0.90,
-    policy: {
-        mode: "auto",
-        priority: 10,
-        cooldown: { seconds: 3600, gate: "activation" }
-    },
-    workspace: "production",
-    project: "support"
-});
-```
-
-### Changing Lifecycle State
-
-```typescript
-await client.updateEMULifecycle({
-    emuKey: "vip_escalation",
-    state: "active",  // draft, shadow, canary, active, archived
-    workspace: "production",
-    project: "support"
-});
-```
-
-### Registration with Full Policy
-
-```typescript
-const response = await client.registerEMU({
-    emuKey: "vip_escalation",
-    trigger: "state.customer.tier == 'vip' AND state.ticket.priority == 'high'",
-    action: {
-        type: "tool_call",
-        intent: "ESCALATE_TO_VIP_TEAM",
-        tool: {
-            tool_id: "zendesk_escalator",
-            version: "2.1.0",
-            args: { queue: "vip-support", priority: "critical" }
-        }
-    },
-    policy: {
-        mode: "auto",
-        priority: 9,
-        cooldown: { seconds: 7200, gate: "activation" },
-        idempotency: { enabled: true, scope: ["customer.id", "ticket.id"] },
-        exclusion_groups: ["escalation_actions"]
-    },
-    expectedUtility: 0.95,
-    confidence: 0.88,
-    decisionPoint: "triage",
-    workspace: "production",
-    project: "support"
-});
-```
-
-### Action Types
-
-#### tool_call
-
-```typescript
-const action = {
-    type: "tool_call",
-    intent: "SEND_EMAIL",
-    tool: {
-        tool_id: "mailer",
-        version: "1.0.0",
-        args: { to: "{{user.email}}", template: "welcome" }
-    }
-};
-```
-
-#### decision_prompt
-
-```typescript
-const action = {
-    type: "decision_prompt",
-    message: "High-risk transaction from {{user.id}}. Approve?",
-    options: [
-        { id: "approve", label: "Approve Transaction" },
-        { id: "decline", label: "Decline Transaction" },
-        { id: "review", label: "Manual Review" }
-    ]
-};
-```
-
-#### route
-
-```typescript
-const action = {
-    type: "route",
-    destination: "spanish_support_queue",
-    metadata: { language: "spanish", priority: "standard" }
-};
-```
-
-#### context_directive
-
-```typescript
-const action = {
-    type: "context_directive",
-    directive: "Customer is VIP tier. Follow escalation protocol per KB #4521"
-};
-```
+Wire-format policy modes are `auto`, `require_human`, and `advisory`; priority is 0–9. See [EMU Fundamentals](01-emu-fundamentals.md) for complete action and policy shapes.
 
 ## Invoking the Engine
-
-### Basic Invocation
 
 ```typescript
 import { AMIClient, state, tag } from '@memrail/sdk';
 
-const client = new AMIClient({ /* config */ });
-
-const response = await client.decide({
-    context: [
-        state("user.id", "U-123"),
-        state("user.tier", "premium"),
-        tag("intent", "upgrade")
-    ],
-    decisionPoint: "onboarding-check",
-    workspace: "production",
-    project: "onboarding"
-});
-
-for (const item of response.selected) {
-    console.log(`EMU: ${item.emu_key}`);
-    console.log(`Action: ${JSON.stringify(item.action)}`);
-    console.log(`Priority: ${item.priority}`);
+async function inspectTicket() {
+    const client = new AMIClient({ workspace: "staging", project: "support" });
+    const response = await client.decide({
+        context: [
+            state("ticket.id", "T-456"),
+            state("ticket.priority", "high"),
+            tag("sentiment", "negative", "ml")
+        ],
+        decisionPoint: "triage",
+        options: { dry_run: true },
+        trace: { enable: true }
+    });
+    for (const item of response.selected) {
+        console.log(item.emu_key, item.emu_version, item.lifecycle_state);
+        console.log(item.policy, item.action);
+    }
+    for (const candidate of response.trace?.candidates ?? []) {
+        console.log(candidate.emu_key, candidate.passed, candidate.suppressed_by);
+    }
+    return response;
 }
 ```
 
-### Using Dict Helper for Complex Data
-
-```typescript
-import { atomsFromDict, tag } from '@memrail/sdk';
-
-const userData = {
-    id: "U-123",
-    tier: "premium",
-    age: 25,
-    verified: true,
-    preferences: { language: "en", timezone: "America/New_York" }
-};
-
-const ticketData = {
-    id: "TICKET-456",
-    priority: "high",
-    sla_remaining_hours: 2,
-    status: "open"
-};
-
-const response = await client.decide({
-    context: [
-        ...atomsFromDict(userData, "user"),
-        ...atomsFromDict(ticketData, "ticket"),
-        tag("intent", "upgrade"),
-        tag("channel", "email")
-    ],
-    workspace: "production",
-    project: "onboarding"
-});
-```
-
-**What `atomsFromDict` does:**
-```typescript
-// Input
-atomsFromDict({ tier: "premium", age: 25, preferences: { language: "en" } }, "user")
-
-// Output (equivalent to)
-[
-    state("user.tier", "premium"),
-    state("user.age", 25),
-    state("user.preferences.language", "en")
-]
-```
+A named `decisionPoint` selects EMUs bound to that exact site; it is not only an analytics label. The SDK accepts `context` or `atoms`, not both. The HTTP body uses `context_atoms`.
 
 ### With Options
 
-```typescript
-const response = await client.decide({
-    context: [...],
-    options: {
-        dryRun: true,
-        topK: 5,
-        explain: true
-    },
-    workspace: "production",
-    project: "onboarding"
-});
-```
+Method arguments such as `decisionPoint`, `contextTs`, and `idempotencyKey` are camelCase. Fields inside `options` are **snake_case**: `dry_run`, `top_k`, `human_consent`, `store_read_cutoff_ts`, `pin_registry_version`, `pin_policy_version`. Trace options expose `enable`, not `includeAllEmus` or `explain`.
 
-### With Tracing
-
-```typescript
-const response = await client.decide({
-    context: [...],
-    trace: { enable: true, includeAllEmus: true },
-    workspace: "production",
-    project: "onboarding"
-});
-
-if (response.trace) {
-    console.log(`Evaluated ${response.trace.evaluatedEmus.length} EMUs`);
-    for (const emu of response.trace.evaluatedEmus) {
-        console.log(`  ${emu.emuKey}: ${emu.triggerResult}`);
-    }
-}
-```
+Top-k is constrained by arbitration and exclusion groups. A candidate may pass its trigger and still be suppressed.
 
 ### With Idempotency
 
-```typescript
-const response1 = await client.decide({
-    context: [state("order.id", "ORDER-123")],
-    idempotencyKey: "order-123-payment",
-    workspace: "production",
-    project: "checkout"
-});
+`idempotencyKey` is for retrying an identical logical invocation. During its cache lifetime, reusing the same key with a different normalized context, decision point, options, or project conflicts. Use a new key for a genuinely new request.
 
-// Second request returns cached response
-const response2 = await client.decide({
-    context: [state("order.id", "ORDER-123")],
-    idempotencyKey: "order-123-payment",
-    workspace: "production",
-    project: "checkout"
-});
-
-if (response2.idempotency?.applied) {
-    console.log("Returned cached response");
-}
-```
+Invocation caching, structured policy idempotency, and business-operation deduplication are different controls. A cached selection does not prove a tool executed exactly once.
 
 ### Response Handling
 
-```typescript
-const response = await client.decide({ context: [...] });
+Selections expose `action`, `policy`, `lifecycle_state`, `emu_version`, `activation_id`, and `score`. The SDK adapts the HTTP `payload` field to `action`. Do not assume `priority` or `processing_time_ms` exists on the response.
 
-if (response.selected.length > 0) {
-    for (const item of response.selected) {
-        switch (item.action.type) {
-            case "tool_call":
-                await executeTool(item.action.tool);
-                break;
-            case "decision_prompt":
-                await presentDecision(item.action.message, item.action.options);
-                break;
-            case "route":
-                await routeToQueue(item.action.destination);
-                break;
-            case "context_directive":
-                await displayContext(item.action.directive);
-                break;
-        }
-    }
-} else {
-    console.log("No EMUs fired");
-}
-```
+`decide` does not dispatch actions. Use [the combined helper](09-tool-registry-executors.md#decide-and-execute) to preserve policy and lifecycle checks; do not blindly call every selected tool.
 
 ## Event Ingestion
 
-### Single Event Ingestion
-
 ```typescript
-await client.emitEvent({
-    subject: "agent",
-    verb: "sent",
-    object: "email",
-    ts: new Date(),
-    attributes: {
-        recipient: "customer@example.com",
-        template: "welcome_email"
-    },
-    anchor: {
-        subject: { type: "agent", id: "AGT-123" },
-        object: { type: "email", id: "EMAIL-456" }
-    },
-    workspace: "production",
-    project: "support"
-});
-```
+import { AMIClient, event } from '@memrail/sdk';
 
-### Batch Event Ingestion
-
-```typescript
-await client.emitEvents({
-    events: [
-        {
-            subject: "user", verb: "login", object: "app",
-            ts: new Date()
-        },
-        {
-            subject: "user", verb: "clicked", object: "button",
+async function recordEmail() {
+    const client = new AMIClient({ workspace: "staging", project: "support" });
+    return client.emitEvent({
+        event: event("agent.sent.email", {
             ts: new Date(),
-            attributes: { button_id: "checkout" }
-        }
-    ],
-    workspace: "production",
-    project: "analytics"
-});
+            attributes: { user_id: "U-123" }
+        })
+    });
+}
 ```
+
+For batches, use `client.emitEvents({ events: [emailSent], workspace: ..., project: ... })` with EventAtom instances, not raw subject/verb/object objects. Emit actual outcomes after actions; avoid blind ingestion retries that could double-count events.
 
 ## Complete Workflows
 
-### Workflow 1: Support Ticket Automation
-
-```typescript
-import { AMIClient, atomsFromDict, tag } from '@memrail/sdk';
-
-async function handleTicketCreated(ticket: any) {
-    const client = new AMIClient({ /* config */ });
-
-    // 1. Ingest event
-    await client.emitEvent({
-        subject: "ticket", verb: "created", object: "zendesk",
-        ts: new Date(),
-        workspace: "production", project: "support"
-    });
-
-    // 2. Build atoms
-    const atoms = [
-        ...atomsFromDict({
-            id: ticket.id, priority: ticket.priority,
-            sla_remaining_hours: ticket.slaRemainingHours,
-            status: ticket.status
-        }, "ticket"),
-        ...atomsFromDict({
-            id: ticket.customer.id, tier: ticket.customer.tier,
-            lifetime_value: ticket.customer.lifetimeValue
-        }, "customer"),
-        tag("category", ticket.category),
-        tag("language", ticket.language)
-    ];
-
-    // 3. Invoke decision engine
-    const response = await client.decide({
-        context: atoms,
-        workspace: "production", project: "support"
-    });
-
-    // 4. Execute selected actions
-    for (const item of response.selected) {
-        if (item.action.type === "tool_call") {
-            await executeTool(item.action.tool);
-        } else if (item.action.type === "route") {
-            await routeTicket(ticket.id, item.action.destination);
-        }
-    }
-}
-```
+Load trusted application facts, add constrained classification tags, call the matching decision point, then execute with the configured client helper. Use real application handlers with authorization and operation-level deduplication. Record outcomes and inspect execution results. See [Tool Registry & Executors](09-tool-registry-executors.md) for a complete integration.
 
 ## Testing & Debugging
 
 ### Dry Run Mode
 
-```typescript
-const response = await client.decide({
-    context: [...],
-    options: { dryRun: true },
-    workspace: "production", project: "support"
-});
+Use `options: { dry_run: true }`. The combined helper skips handlers and ACK. Dry-run also avoids activation locks, but diagnostics/accounting may still be recorded.
 
-console.log(`Would execute ${response.selected.length} EMUs:`);
-for (const item of response.selected) {
-    console.log(`  - ${item.emu_key} (priority: ${item.priority})`);
-}
-```
+### Tracing
 
-### Unit Testing (Jest)
+Inspect `response.trace?.candidates`. Candidate fields include `emu_key`, `passed`, `reasons`, and `suppressed_by`, using wire-format snake_case names.
 
-```typescript
-import { AMIClient, state, tag } from '@memrail/sdk';
+### Shadow Mode Testing
 
-describe('VIP Escalation EMU', () => {
-    let client: AMIClient;
+Server-side shadow EMUs are diagnostic trace candidates, not executable selections. Shadow arbitration is separate from live arbitration. Review positive and negative cases before explicitly promoting a policy.
 
-    beforeAll(() => {
-        client = new AMIClient({
-            apiKey: process.env.AMI_API_KEY,
-            org: "test-org",
-            workspace: "test",
-            project: "support"
-        });
-    });
+### Unit Testing
 
-    test('fires for VIP + high priority', async () => {
-        const response = await client.decide({
-            context: [
-                state("customer.tier", "vip"),
-                state("ticket.priority", "high")
-            ],
-            options: { dryRun: true }
-        });
-
-        const emuKeys = response.selected.map(item => item.emu_key);
-        expect(emuKeys).toContain("support.vip_escalation");
-    });
-
-    test('does not fire for standard tier', async () => {
-        const response = await client.decide({
-            context: [
-                state("customer.tier", "standard"),
-                state("ticket.priority", "high")
-            ],
-            options: { dryRun: true }
-        });
-
-        const emuKeys = response.selected.map(item => item.emu_key);
-        expect(emuKeys).not.toContain("support.vip_escalation");
-    });
-});
-```
+Mock the SDK transport for unit tests. Use an isolated project for live integration tests and exercise missing/null inputs, boundaries, duplicates, approval, lifecycle, and dry-run behavior relevant to the policy. Never use production credentials for a destructive test reset.
 
 ## Error Handling
 
-### Common Errors
+Catch `AMIError` or narrower exported classes such as `AMIBadRequest`, `AMIConflict`, `AMIUnauthorized`, `AMIForbidden`, `AMINotFound`, `AMIUnprocessable`, `AMIRateLimited`, and `AMIServerError`.
 
-```typescript
-import {
-    AMIBadRequest,
-    AMINotFound,
-    AMIUnauthorized,
-    AMIForbidden,
-    AMIUnprocessable,
-    AMIServerError,
-    AMIError
-} from '@memrail/sdk';
-
-try {
-    await client.registerEMU({
-        emuKey: "test_emu",
-        trigger: "INVALID DSL SYNTAX",
-        // ...
-    });
-} catch (error) {
-    if (error instanceof AMIBadRequest) {
-        console.error(`Bad request: ${error.message}`);
-    } else if (error instanceof AMINotFound) {
-        console.error(`Not found: ${error.message}`);
-    } else if (error instanceof AMIUnauthorized) {
-        console.error(`Unauthorized: ${error.message}`);
-    } else if (error instanceof AMIError) {
-        console.error(`AMI error: ${error.message}`);
-    }
-}
-```
-
-### Retry Logic
-
-```typescript
-async function decideWithRetry(
-    client: AMIClient,
-    context: any[],
-    maxRetries = 3
-): Promise<any> {
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-            return await client.decide({ context });
-        } catch (error) {
-            if (error instanceof AMIServerError && attempt < maxRetries - 1) {
-                const waitTime = Math.pow(2, attempt) * 1000;
-                await new Promise(resolve => setTimeout(resolve, waitTime));
-            } else {
-                throw error;
-            }
-        }
-    }
-}
-```
+Use bounded retries for transient failures. Do not retry unchanged invalid requests or assume a request-level key prevents duplicate business effects after a timeout.
 
 ## CLI Commands
 
-The `ami` CLI is shared between both SDKs. See the [Python SDK reference](05-sdk-integration-python.md#cli-commands) for the complete CLI command reference — all commands work identically regardless of which SDK you use.
-
-Key commands:
-```bash
-memrail emu-pull ./emus/ -w production -p my-project    # Export EMUs
-memrail emu-plan ./emus/                                  # Preview changes
-memrail emu-apply ./emus/ --yes                           # Apply changes
-memrail emu-validate -w prod -p api                       # Validate EMUs
-memrail purge-workspace staging --yes                     # Reset workspace
-memrail tool-register                                     # Upload tool definitions
-```
+Install the Python-distributed `memrail` CLI even if the application uses TypeScript. See the [command reference](05-sdk-integration-python.md#cli-commands) and check each installed command's `--help`.
 
 ## Workspace Management
 
-### Purging a Workspace
+Purging is destructive and requires org-level credentials. Only reset an explicitly authorized workspace/target set; a debugging request does not authorize a purge.
 
 ```bash
-# Purge everything
-memrail purge-workspace production
-
-# Skip confirmation
-memrail purge-workspace staging --yes
-
-# Selective purge
-memrail purge-workspace development --targets emus,traces,events --yes
+memrail purge-workspace development --targets emus,traces,events
 ```
 
-**Available targets:** `emus`, `traces`, `events`, `asr`, `tools`, `cooldowns`, `prompts`, `hindsight`, `decision_points`
+Review the confirmation. Add `--yes` only for a previously authorized reset workflow.
 
 ## EMU Validation Reports
 
-### Single EMU Validation
+### Agent Validation Workflow
 
-```typescript
-const report = await client.getEMUValidator("welcome-email", {
-    workspace: "production"
-});
+Use `emu-plan --strict` and `emu-apply --strict` to validate candidates before writes. `--validate` requests diagnostics; it is not the strict gate. `emu-validate` checks deployed records. See [candidate validation](12-emu-jsonl-workflow.md#candidate-validation).
 
-if (!report.passed) {
-    for (const w of report.warnings) {
-        console.log(`[${w.severity}] ${w.code}: ${w.message}`);
-        if (w.remediation) {
-            console.log(`  Fix: ${w.remediation}`);
-        }
-    }
-}
-```
+For programmatic preflight, `client.validateEMUCandidates({ candidates, workspace, project })` accepts complete wire-format EMUs. Inspect every `reports[].report`. This endpoint is scoped and read-only.
 
-### Workspace Bulk Validation
-
-```typescript
-const result = await client.validateWorkspaceEMUs({
-    workspace: "production"
-});
-
-console.log(`Validated ${result.total} EMUs`);
-for (const item of result.reports) {
-    const status = item.report.passed ? "PASS" : "FAIL";
-    console.log(`  [${status}] ${item.emu_key} (${item.state})`);
-}
-```
+For existing records, use `client.getEMUValidator(emuKey, { workspace })` or `client.validateWorkspaceEMUs({ workspace })` where exposed by the installed SDK.
 
 ### Warning Code Reference
 
-| Code | Meaning | Agent Action |
-|------|---------|-------------|
-| `WARN-NEVER-SEEN` | Atom not observed in ASR | Ensure ingestion pipeline emits this atom |
-| `WARN-SCHEMA-MISMATCH` | Type/operator incompatibility | Fix trigger operator or atom type |
-| `WARN-LOW-REACH` | Atom stale (>7 days) | Verify pipeline is running |
-| `WARN-SEMANTIC-EQUIVALENT` | Wrong event name, similar exists | Use suggested correct name |
-| `WARN-ACTION-TOOL-NOT-FOUND` | Tool not in executor registry | Register via `memrail tool-register` |
-| `WARN-ACTION-PLACEHOLDER-NEVER-SEEN` | Action template refs unobserved atom | Ensure atom is emitted |
-| `WARN-POLICY-GAP` | Missing cooldown/idempotency | Add policy fields for auto-mode EMUs |
-
----
+Use the [shared warning reference](05-sdk-integration-python.md#warning-code-reference). Validate remediation against the intended policy before applying it; a passing static report is not a substitute for business tests.
 
 ## Best Practices
 
-1. **No context manager needed**: Unlike Python, TypeScript client doesn't require `async with` — just construct and use
-2. **Enable tracing in development**: Use `trace: { enable: true }` to debug trigger evaluation
-3. **Test with dryRun**: Test triggers without side effects using `options: { dryRun: true }`
-4. **Handle errors with instanceof**: Use specific error classes for targeted error handling
-5. **Document ATOM dependencies**: Clearly document what atoms each EMU needs
-6. **Use IaC sync workflow**: Prefer `emu-pull/plan/apply` for production deployments
-7. **Commit lock files**: Track `.emu.lock.jsonl` in version control
-8. **Use atomsFromDict**: Cleaner than manual state() calls for complex objects
-9. **Test in shadow mode**: Evaluate new EMUs without executing actions
-10. **Monitor performance**: Track `processing_time_ms` in responses
-
----
+Keep production policy in reviewed JSONL. Preserve source, policy, and lifecycle metadata through integration boundaries. Separate selection tests from execution tests and make lifecycle promotion an explicit reviewed action.

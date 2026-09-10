@@ -43,7 +43,7 @@ COUNT event.user.clicked.button WHERE user_id == '12345' IN 'PT1H' > 5
 // Complex rule
 state.user.tier IN ['gold', 'platinum'] AND
 state.account.verified AND
-COUNT event.order.placed WHERE customer_id == 'cust-123' IN 'P30D' >= 3
+COUNT event.customer.placed.order WHERE customer_id == 'cust-123' IN 'P30D' >= 3
 ```
 
 ## Core Syntax
@@ -70,7 +70,7 @@ state.sentiment.score < 0.4
 state.ticket.priority != 'low'
 state.user.balance >= 1000
 state.system.cpu_usage > 85
-state.score <= 0.5
+state.sentiment.score <= 0.5
 ```
 
 **Type rules**:
@@ -88,7 +88,7 @@ state.order.total >= 1000
 state.User.Tier == 'premium'
 
 // ❌ Invalid - single segment
-state.tier == 'premium'  // Must be state.namespace.tier
+state.user.tier == 'premium'  // Must be state.namespace.tier
 
 // ❌ Invalid - string comparison with numeric operators
 state.user.name > 'alice'  // Use string operations instead
@@ -135,8 +135,8 @@ Check if events occurred and count them.
 
 **Syntax**:
 ```javascript
-// Simple event check
-event.subject.verb.object
+// Event checks require an explicit window
+event.subject.verb.object IN 'PT24H'
 
 // Event recency
 event.subject.verb.object IN 'duration'
@@ -162,9 +162,9 @@ COUNT(event.subject.verb.object WHERE attr == value IN 'duration') OPERATOR numb
 
 ```javascript
 // Basic event checks (current project)
-event.user.logged.in
-event.order.placed.cart
-event.agent.sent.email
+event.user.logged.in IN 'PT24H'
+event.order.placed.cart IN 'PT24H'
+event.agent.sent.email IN 'PT24H'
 
 // Cross-project event checks (4-part notation)
 event.auth_service.user.logged.in IN 'PT1H'      // Events from auth_service project
@@ -176,12 +176,12 @@ event.customer.completed.purchase IN 'P7D'  // Within last 7 days
 
 // Event with attribute filtering (check if SPECIFIC user/entity did something)
 event.user.failed.login WHERE user_id == '12345' IN 'PT15M'
-event.order.shipped WHERE order_id == 'ord-456' IN 'P7D'
-event.session.expired WHERE session_id == 'sess-789' IN 'PT1H'
+event.order.shipped.parcel WHERE order_id == 'ord-456' IN 'P7D'
+event.session.expired.token WHERE session_id == 'sess-789' IN 'PT1H'
 
 // Simple counting (ergonomic syntax)
 COUNT event.user.clicked.button IN 'PT1H' > 5
-COUNT event.order.placed IN 'P30D' >= 10
+COUNT event.customer.placed.order IN 'P30D' >= 10
 
 // Cross-project counting
 COUNT event.analytics_proj.user.viewed.page IN 'P7D' >= 50
@@ -210,16 +210,16 @@ This enables:
 ```javascript
 // Require authentication before purchase
 event.auth_service.user.logged.in IN 'PT24H' AND
-event.shop_service.user.initiated.checkout
+event.shop_service.user.initiated.checkout IN 'PT1H'
 
 // Escalate support ticket if auth failed
 event.auth_service.user.failed.login IN 'PT15M' AND
 COUNT(event.auth_service.user.failed.login IN 'PT15M') >= 5
 
 // Cross-service workflow tracking
-event.api_gateway.request.received IN 'PT1H' AND
-event.payment_service.payment.completed IN 'PT1H' AND
-NOT event.notification_service.email.sent IN 'PT1H'
+event.api_gateway.request.received.call IN 'PT1H' AND
+event.payment_service.payment.completed.transaction IN 'PT1H' AND
+NOT event.notification_service.email.sent.message IN 'PT1H'
 ```
 
 ## Advanced Features
@@ -240,14 +240,16 @@ state.user.premium == true
 state.user.verified == true AND state.account.active == true
 
 // Negation
-NOT state.user.banned  // Same as state.user.banned != true
+NOT state.user.banned  // Also true when the field is absent; add EXISTS if absence must deny
 ```
 
 **Truthiness rules**:
-- Boolean `true` → true
-- String `"true"`, `"yes"`, `"1"` → true (case-insensitive)
-- Number > 0 → true
-- Everything else → false
+- Boolean values retain their meaning.
+- Strings are false for empty string, "false", "no", or "0" (case-insensitive); other strings are true.
+- Nonzero numbers are true.
+- Missing/null values are false.
+
+Prefer explicit Boolean facts when permissive truthiness is not the intended contract.
 
 ### EXISTS Operator
 
@@ -294,22 +296,22 @@ tag.kind IN [value1, value2, ...]
 // State checks
 state.user.role IN ['admin', 'moderator', 'owner']
 state.user.country IN ['US', 'CA', 'MX']
-state.tier IN ['gold', 'platinum', 'diamond']
+state.user.tier IN ['gold', 'platinum', 'diamond']
 
 // Tag checks
 tag.priority IN ['high', 'critical']
 tag.category IN ['billing', 'support', 'sales']
 
 // Mixed types (numbers and strings)
-state.status_code IN [200, 201, 204]
-state.level IN [1, 2, 3]
+state.response.status_code IN [200, 201, 204]
+state.user.level IN [1, 2, 3]
 ```
 
-**Normalization**: String values are case-insensitive and Unicode-normalized.
+**Normalization**: Tag membership normalizes string values. State membership compares the supplied values directly.
 
 ```javascript
-// These all match:
-state.role IN ['Admin', 'ADMIN', 'admin']
+// Tag membership normalizes strings:
+tag.role IN ['Admin', 'ADMIN', 'admin']
 ```
 
 ### String Operations
@@ -330,16 +332,16 @@ state.user.email ENDS_WITH '@company.com'
 state.user.email STARTS_WITH 'admin-'
 
 // Content filtering
-state.message CONTAINS 'urgent'
-state.subject CONTAINS 'ALERT'
+state.ticket.message CONTAINS 'urgent'
+state.ticket.subject CONTAINS 'ALERT'
 
 // Pattern matching with regex
-state.code MATCHES '^[A-Z]{3}-\d{4}$'
-state.phone MATCHES '^\+1-\d{3}-\d{3}-\d{4}$'
+state.ticket.code MATCHES '^[A-Z]{3}-[0-9]{4}$'
+state.user.phone MATCHES '^\+1-\d{3}-\d{3}-\d{4}$'
 
 // Name checks
 state.user.name STARTS_WITH 'Dr.'
-state.filename ENDS_WITH '.pdf'
+state.document.filename ENDS_WITH '.pdf'
 ```
 
 **Notes**:
@@ -365,16 +367,16 @@ event.subject.verb.object WHERE condition [AND condition...] IN 'duration'
 ```javascript
 // Check if specific user performed action
 event.user.failed.login WHERE user_id == 'user-123' IN 'PT15M'
-event.order.placed WHERE customer_id == 'cust-456' IN 'P7D'
+event.customer.placed.order WHERE customer_id == 'cust-456' IN 'P7D'
 
 // Multiple attribute filtering
-event.order.shipped WHERE order_id == 'ord-789' AND carrier == 'fedex' IN 'P7D'
+event.order.shipped.parcel WHERE order_id == 'ord-789' AND carrier == 'fedex' IN 'P7D'
 
 // Session tracking
-event.session.expired WHERE session_id == 'sess-abc123' IN 'PT1H'
+event.session.expired.token WHERE session_id == 'sess-abc123' IN 'PT1H'
 
 // Document collaboration
-event.document.edited WHERE user_id == 'alice' AND document_id == 'doc-123' IN 'PT24H'
+event.user.edited.document WHERE user_id == 'alice' AND document_id == 'doc-123' IN 'PT24H'
 ```
 
 **WHERE clause rules**:
@@ -391,14 +393,14 @@ event.document.edited WHERE user_id == 'alice' AND document_id == 'doc-123' IN '
 event.user.failed.login WHERE user_id == 'user-123' IN 'PT15M'
 
 // Order tracking: Check if THIS order was shipped
-event.order.shipped WHERE order_id == 'ord-456' IN 'P7D'
+event.order.shipped.parcel WHERE order_id == 'ord-456' IN 'P7D'
 
 // Session management: Check if THIS session expired
-event.session.expired WHERE session_id == 'sess-789' IN 'PT1H'
+event.session.expired.token WHERE session_id == 'sess-789' IN 'PT1H'
 
 // Multi-user systems: "Did MY user edit this document?"
 // Use template literals to reference context values in WHERE clauses
-event.document.edited WHERE user_id == '{{current_user.id}}' IN 'PT24H'
+event.user.edited.document WHERE user_id == '{{current_user.id}}' IN 'PT24H'
 
 // Entity-scoped: "Was this entity's invite sent?"
 event.staff.sent.invite WHERE entity_id == '{{entity.id}}' IN 'P3D'
@@ -407,6 +409,8 @@ event.staff.sent.invite WHERE entity_id == '{{entity.id}}' IN 'P3D'
 **Performance Benefits**:
 - Short-circuits on first match (faster than `COUNT >= 1`)
 - More semantic: expresses intent ("did it happen?") vs counting
+
+For range-based event classifications (such as large purchases), emit a reviewed categorical attribute such as `amount_band="large"` and match it with equality. WHERE does not accept numeric range comparisons.
 
 ### COUNT with WHERE
 
@@ -427,16 +431,16 @@ COUNT(event.subject.verb.object WHERE condition [AND condition...] IN 'duration'
 ```javascript
 // Single condition (ergonomic syntax)
 COUNT event.user.clicked.button WHERE user_id == '12345' IN 'PT1H' > 5
-COUNT event.order.placed WHERE customer_id == 'cust-789' IN 'P7D' >= 3
+COUNT event.customer.placed.order WHERE customer_id == 'cust-789' IN 'P7D' >= 3
 
 // Multiple conditions (ergonomic syntax)
-COUNT event.order.placed
+COUNT event.customer.placed.order
   WHERE customer_id == 'cust-123' AND status == 'active'
   IN 'P7D' >= 10
 
 // Numeric attributes (ergonomic syntax)
 COUNT event.user.viewed.video WHERE duration == 120 IN 'P1D' > 5
-COUNT event.purchase.completed WHERE amount >= 100 IN 'P30D' >= 3
+COUNT event.customer.completed.purchase WHERE amount_band == 'large' IN 'P30D' >= 3
 
 // Original syntax (still works)
 COUNT(event.user.clicked.button WHERE user_id == '12345' IN 'PT1H') > 5
@@ -459,8 +463,8 @@ COUNT event.user.failed.login
   IN 'PT15M' >= 5
 
 // High-value customer detection
-COUNT event.order.placed
-  WHERE customer_id == 'cust-123' AND amount >= 1000
+COUNT event.customer.placed.order
+  WHERE customer_id == 'cust-123' AND amount_band == 'large'
   IN 'P90D' >= 3
 
 // Session activity tracking
@@ -507,11 +511,11 @@ AND state.account.verified
 | Operator | Purpose | Example |
 |----------|---------|---------|
 | `EXISTS` | Check field existence | `state.user.email EXISTS` |
-| `IN` | List membership | `state.role IN ['admin', 'owner']` |
-| `STARTS_WITH` | String prefix | `state.email STARTS_WITH 'admin-'` |
-| `ENDS_WITH` | String suffix | `state.email ENDS_WITH '@company.com'` |
-| `CONTAINS` | Substring check | `state.message CONTAINS 'urgent'` |
-| `MATCHES` | Regex match | `state.code MATCHES '^[A-Z]{3}-\d{4}$'` |
+| `IN` | List membership | `state.user.role IN ['admin', 'owner']` |
+| `STARTS_WITH` | String prefix | `state.user.email STARTS_WITH 'admin-'` |
+| `ENDS_WITH` | String suffix | `state.user.email ENDS_WITH '@company.com'` |
+| `CONTAINS` | Substring check | `state.ticket.message CONTAINS 'urgent'` |
+| `MATCHES` | Regex match | `state.ticket.code MATCHES '^[A-Z]{3}-[0-9]{4}$'` |
 
 ## Duration Format
 
@@ -521,6 +525,7 @@ Use ISO 8601 duration strings for time windows.
 
 | Duration | Meaning |
 |----------|---------|
+| `PT0.5S` | Half a second |
 | `PT1M` | 1 minute |
 | `PT5M` | 5 minutes |
 | `PT15M` | 15 minutes |
@@ -568,8 +573,8 @@ COUNT event.user.failed.login
 // Reward customers with 3+ large orders in 30 days
 state.user.tier IN ['gold', 'platinum'] AND
 state.account.verified AND
-COUNT event.order.placed
-  WHERE customer_id == 'cust-123' AND amount >= 1000
+COUNT event.customer.placed.order
+  WHERE customer_id == 'cust-123' AND amount_band == 'large'
   IN 'P30D' >= 3
 ```
 
@@ -606,7 +611,7 @@ COUNT event.user.called.api
 ```javascript
 // Require MFA for sensitive actions from new locations
 state.user.location_new AND
-event.user.performed.sensitive_action AND
+event.user.performed.sensitive_action IN 'PT1H' AND
 NOT state.user.mfa_verified
 ```
 
@@ -627,18 +632,18 @@ state.account.age > 90
 // Ensure user is authenticated in auth service before allowing checkout
 event.auth_service.user.logged.in IN 'PT24H' AND
 state.user.verified AND
-NOT event.payment_service.payment.failed IN 'PT1H'
+NOT event.payment_service.payment.failed.transaction IN 'PT1H'
 
 // Cross-service error correlation
 // Detect when API gateway sees errors but services are healthy
-COUNT event.api_gateway.request.failed IN 'PT5M' >= 10 AND
-NOT event.backend_service.error.occurred IN 'PT5M' AND
-NOT event.database_service.connection.failed IN 'PT5M'
+COUNT event.api_gateway.request.failed.call IN 'PT5M' >= 10 AND
+NOT event.backend_service.error.occurred.request IN 'PT5M' AND
+NOT event.database_service.connection.failed.attempt IN 'PT5M'
 
 // Distributed workflow coordination
-// Trigger action only if events occurred in correct order across services
-event.order_service.order.created IN 'PT1H' AND
-event.payment_service.payment.completed IN 'PT1H' AND
-event.inventory_service.items.reserved IN 'PT1H' AND
-NOT event.notification_service.email.sent IN 'PT1H'
+// Check that all milestones occurred; AND alone does not prove their order
+event.order_service.order.created.cart IN 'PT1H' AND
+event.payment_service.payment.completed.transaction IN 'PT1H' AND
+event.inventory_service.items.reserved.stock IN 'PT1H' AND
+NOT event.notification_service.email.sent.message IN 'PT1H'
 ```

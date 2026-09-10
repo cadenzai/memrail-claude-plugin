@@ -14,7 +14,7 @@
 
 ## What is Trigger Reachability?
 
-**Trigger reachability** is the concept that a trigger can only fire if all required ATOMs are available at invoke time.
+**Trigger reachability** asks whether the facts available at an invocation site can satisfy an expression. Analyze each Boolean branch: missing positive comparisons may fail while NOT, OR, or zero-event counts still allow a match.
 
 ### The Core Problem
 
@@ -34,7 +34,7 @@ decide(context=[
 
 ### Why This Matters
 
-1. **Silent failures**: Triggers don't error, they just evaluate to `FALSE`
+1. **Missing inputs**: Positive predicates may evaluate to `FALSE`; malformed DSL is a separate validation error
 2. **False negatives**: EMU should fire but doesn't due to missing data
 3. **Debugging complexity**: Hard to distinguish "trigger didn't match" from "atoms missing"
 4. **Design implications**: Must consider data pipeline when writing triggers
@@ -104,115 +104,26 @@ event("agent.sent.email", ts=..., anchor={
 
 ## Event Ingestion
 
-Event-based triggers require proper event ingestion.
-
-### Event Ingestion Workflow
+Persist events after the application completes the corresponding action. An ATOM builder alone does not store an event.
 
 ```python
-# 1. System event occurs (external to AMI)
-# Example: Agent sends email via email service
+from datetime import datetime, timezone
+from memrail.atoms import event
 
-# 2. Your application captures event
-async def on_email_sent(agent_id, email_id, recipient):
-    # Capture event details
-    ...
-
-    # 3. Ingest event to AMI
-    await ami_client.ingest_event(
-        subject="agent",
-        verb="sent",
-        object="email",
+async def record_email_sent(client, email_id, user_id):
+    return await client.emit_event(event(
+        "agent.sent.email",
         ts=datetime.now(timezone.utc),
-        attributes={
-            "recipient": recipient,
-            "template": "welcome_email"
-        },
-        anchor={
-            "subject": {"type": "agent", "id": agent_id},
-            "object": {"type": "email", "id": email_id}
-        }
-    )
-
-# 4. Event is now available for event queries
-# event.agent.sent.email IN 'PT24H' can now match
+        subject_anchor=("agent", "A-123"),
+        object_anchor=("email", email_id),
+        attributes={"user_id": user_id},
+    ))
 ```
 
-### Event Storage Duration
+Call `emit_events` with a list of EventAtom instances for batches. For an event-bus integration, map topic, timestamp, attributes, and anchors consistently in the consumer. Avoid blind retries that double-count events.
 
-Events are stored for **90 days** by default. Triggers with windows > 90 days may not reach all events.
+Events are retained for 90 days by default, subject to effective organization/workspace configuration. A longer query can still match recent retained events; it cannot recover expired history. Scope event queries to the intended entity with WHERE attributes or supported role binding.
 
-```javascript
-// ✅ Safe: Within storage window
-event.user.login.success IN 'P30D'  // Last 30 days
-
-// ⚠️ Risky: Beyond storage window
-event.user.created.account IN 'P180D'  // Last 180 days (may miss events)
-```
-
-### Event Ingestion Patterns
-
-#### Pattern 1: Inline Ingestion
-
-Ingest events immediately after they occur:
-
-```python
-async def handle_ticket_created(ticket):
-    # 1. Create ticket in system
-    ticket_id = await ticket_system.create(ticket)
-
-    # 2. Immediately ingest event
-    await ami_client.ingest_event(
-        subject="ticket",
-        verb="created",
-        object="zendesk",
-        ts=datetime.now(timezone.utc)
-    )
-```
-
-**Pros**: Simple, low latency
-**Cons**: Couples AMI to business logic
-
-#### Pattern 2: Event Bus
-
-Use event bus/queue for decoupled ingestion:
-
-```python
-# Publisher
-async def handle_ticket_created(ticket):
-    await event_bus.publish("ticket.created", ticket)
-
-# Subscriber (separate service)
-async def ingest_to_ami(event):
-    if event.type == "ticket.created":
-        await ami_client.ingest_event(
-            subject="ticket",
-            verb="created",
-            object="zendesk",
-            ts=event.timestamp
-        )
-```
-
-**Pros**: Decoupled, resilient, scalable
-**Cons**: Increased complexity
-
-#### Pattern 3: Batch Ingestion
-
-Ingest events in batches:
-
-```python
-# Collect events
-events = [
-    {"subject": "user", "verb": "login", "object": "app", "ts": ...},
-    {"subject": "user", "verb": "clicked", "object": "button", "ts": ...},
-    ...
-]
-
-# Batch ingest
-await ami_client.batch_ingest_events(events)
-```
-
-**Pros**: Efficient, reduced API calls
-**Cons**: Increased latency
 
 ## ML Inference Dependencies
 
@@ -329,49 +240,26 @@ tag.device_type == 'mobile'    // From user agent
 
 ### Static Analysis
 
-Analyze trigger to determine ATOM dependencies:
-
-```python
-from memrail.analysis import extract_dependencies
-
-trigger = "state.user.tier == 'premium' AND tag.intent == 'upgrade'"
-deps = extract_dependencies(trigger)
-
-# Result:
-{
-    "state_keys": ["user.tier"],
-    "tag_kinds": ["intent"],
-    "event_topics": []
-}
-
-# Check if ATOM builders exist
-for key in deps["state_keys"]:
-    assert has_atom_builder(key), f"Missing ATOM builder for {key}"
-
-for kind in deps["tag_kinds"]:
-    assert has_ml_classifier(kind), f"Missing ML classifier for {kind}"
-```
+Compare each trigger dependency with the builders actually called at that decision point. Distinguish state keys, tag kinds, event topics, entity filters, and temporal windows. Check local DSL syntax with `memrail emu-plan ./emus/ --validate-only`; use `--strict` candidate validation for server registry checks before writes. Do not assume a `memrail.analysis.extract_dependencies` public helper exists.
 
 ### Runtime Monitoring
 
-Track trigger evaluation results:
-
 ```python
-response = await ami_client.decide(
-    context=[...],
-    trace=True  # Enable tracing
-)
+from memrail.models import InvokeOptions, TraceOptions
 
-# Check trace for reachability issues
-for item in response.trace.evaluated_emus:
-    if not item.trigger_result:
-        print(f"EMU {item.emu_key} did not fire")
-        print(f"  Reason: {item.failure_reason}")
-        # Example reasons:
-        # - "Missing state atom: user.tier"
-        # - "Missing tag: intent"
-        # - "No matching events: agent.sent.email"
+async def inspect_reachability(client, atoms):
+    response = await client.decide(
+        context=atoms,
+        options=InvokeOptions(dry_run=True),
+        trace=TraceOptions(enable=True),
+    )
+    for item in (response.trace or {}).get("candidates", []):
+        print(item["emu_key"], item["passed"], item["reasons"], item["suppressed_by"])
+    return response
 ```
+
+A passed trigger may still lose arbitration or be suppressed by execution controls. Check selection separately. Missing positive predicates generally fail, but NOT, OR, and zero COUNT conditions can be true with absent data.
+
 
 ### Reachability Checklist
 
@@ -462,38 +350,24 @@ trigger = "tag.sentiment == 'negative'"
 
 ### Pattern 6: Binding Context Missing
 
+Entity-scoped event filters need both an attribute on the stored event and the corresponding invocation fact:
+
 ```javascript
-// EMU trigger (with event binding - advanced feature)
-// Note: Event binding may not be available in all DSL versions
-trigger = "event.agent.sent.email IN 'PT24H' WITH bind(subject='same')  // Advanced: bind events to specific entities"
-
-// Invoke without agent.id
-decide(context=[
-    state("ticket.id", "TICKET-123")
-    // ❌ Missing: agent.id for binding
-])
-
-// Result: Trigger unreachable (strict reachability failure)
+state.user.id EXISTS AND event.agent.sent.email WHERE user_id == '{{user.id}}' IN 'PT24H'
 ```
 
-**Fix**: Provide role IDs in context:
+Provide `state("user.id", user_id)` and ingest the same `user_id` attribute. A WHERE comparison to a literal `state.user.id` expression is not supported; use the template shown above.
 
-```python
-decide(context=[
-    state("agent.id", "AGT-123"),  # Required for binding
-    state("ticket.id", "TICKET-123")
-])
-```
 
 ## Value Reachability (Beyond Presence)
 
-Atom **presence** reachability checks whether the key exists. **Value** reachability checks whether the emitted value can actually satisfy the trigger condition. Both must pass for an EMU to fire.
+Atom **presence** reachability checks whether the key exists. **Value** reachability checks whether the emitted value can actually satisfy the trigger condition. Evaluate both against each Boolean branch; presence alone does not establish that the intended positive condition is reachable.
 
 ### Value Reachability Checklist
 
 For every trigger condition, verify:
 
-1. **Is the atom always emitted, or only conditionally?** — Check the builder for `if` guards that skip key emission when a value is None. A missing key silently evaluates to FALSE.
+1. **Is the atom always emitted, or only conditionally?** — Check conditional builders and test the full expression when each input is absent, not just individual positive predicates.
 2. **When conditionally omitted, does the missing key make the trigger silently FALSE?** — `null > 60` is FALSE, `null == false` is FALSE. This is especially dangerous when the omitted case is the exact scenario the trigger should catch.
 3. **Do value types match the comparison operators?** — Int vs string, Python bool vs DSL `true`/`false` literal.
 4. **Are referenced events actually ingested?** — Cross-reference every `event.X.Y.Z` in triggers against the event emission map. `NOT event.X IN 'duration'` on a never-ingested event is always TRUE — the guard does nothing.
@@ -513,7 +387,7 @@ trigger = "state.entity.days_since_last_upload > 60"
 # But "never uploaded" is the MOST inactive case!
 ```
 
-**Fix**: Emit a sentinel value instead of omitting:
+**Possible fix**, only if the business contract defines “never uploaded” as maximally inactive: use a documented sentinel. Otherwise expose a separate presence/history fact and define the rule explicitly:
 ```python
 enriched["days_since_last_upload"] = days if days is not None else 9999
 ```
@@ -569,73 +443,20 @@ trigger = "state.document.is_classified == false"
 
 ### Step 1: Enable Tracing
 
-```python
-response = await ami_client.decide(
-    context=[...],
-    trace=True
-)
-
-# Check trace
-for emu in response.trace.evaluated_emus:
-    if not emu.trigger_result:
-        print(f"EMU {emu.emu_key} unreachable")
-        print(f"  Trigger: {emu.trigger}")
-        print(f"  Reason: {emu.failure_reason}")
-```
+Use the runtime monitoring example above. Inspect candidate reasons and suppression, not an invented `evaluated_emus` response field.
 
 ### Step 2: Analyze Dependencies
 
-```python
-# Extract dependencies
-deps = extract_dependencies(trigger)
-
-# Check each dependency
-print("Required state keys:", deps["state_keys"])
-print("Required tag kinds:", deps["tag_kinds"])
-print("Required event topics:", deps["event_topics"])
-
-# Verify atoms provided
-provided_states = [atom.key for atom in atoms if atom.type == "state"]
-provided_tags = [atom.kind for atom in atoms if atom.type == "tag"]
-
-missing_states = set(deps["state_keys"]) - set(provided_states)
-missing_tags = set(deps["tag_kinds"]) - set(provided_tags)
-
-print("Missing states:", missing_states)
-print("Missing tags:", missing_tags)
-```
+Compare the named decision point's actual atoms with the trigger and action-template contracts. Verify missing/null behavior for each Boolean branch. Use candidate validation reports to check observed registry names and types.
 
 ### Step 3: Test in Isolation
 
-Test trigger with minimal atoms:
-
-```python
-# Test state function in isolation
-response = await ami_client.decide(
-    context=[state("user.tier", "premium")],
-    emus=["test_emu"],  # Only evaluate this EMU
-    options=InvokeOptions(dry_run=True)
-)
-
-# Should fire if state check is only dependency
-assert len(response.selected) == 1, "State check failed"
-```
+Use an isolated project or dedicated named decision point with known policy bindings. The SDK does not accept an `emus=[...]` filter on decide. Use dry-run and assert both expected selections and unexpected non-selections.
 
 ### Step 4: Check Event History
 
-```python
-# Query events
-events = await ami_client.list_events(
-    subject="agent",
-    verb="sent",
-    object="email",
-    start_time=datetime.now(timezone.utc) - timedelta(days=1)
-)
+Inspect stored events in the console or the project's event API. Verify tenant/project scope, topic order, timestamps, attributes, anchors, effective retention, and the query's evaluation time. Do not assume an SDK `list_events` method exists.
 
-print(f"Found {len(events)} events")
-for event in events:
-    print(f"  {event.ts}: {event.subject}.{event.verb}.{event.object}")
-```
 
 ### Step 5: Validate ATOM Builders
 
@@ -699,21 +520,10 @@ Event Dependencies: None
 """
 ```
 
-### 2. Validate at Registration
+### 2. Validate Before Deployment
 
-```python
-async def register_emu_with_validation(emu_spec):
-    # Extract dependencies
-    deps = extract_dependencies(emu_spec["trigger"])
+Run local JSONL/DSL validation and `emu-plan --strict`, then review the proposed diff and policy tests before `emu-apply --strict`. Keep observed-ATOM health checks separate from business correctness.
 
-    # Validate
-    for key in deps["state_keys"]:
-        if not atom_registry.has_builder(key):
-            raise ValueError(f"No ATOM builder for {key}")
-
-    # Register
-    await ami_client.register_emu(**emu_spec)
-```
 
 ### 3. Monitor Trigger Reach Rate
 
@@ -731,20 +541,8 @@ if reach_rate < 0.01:  # < 1%
 
 ### 4. Use Shadow Mode
 
-Test new EMUs in shadow mode first:
+Apply a new candidate with a matching shadow target, or use an explicit lifecycle transition for an existing record. Review its trace candidates; it must not enter executable selections. Promote only after the relevant tests and observed behavior meet the rollout criteria.
 
-```python
-# Register as shadow
-await ami_client.register_emu(
-    emu_key="new_emu",
-    trigger="...",
-    state="shadow"  # Evaluate but don't execute
-)
-
-# Monitor evaluation
-# Once satisfied, promote to active
-await ami_client.update_emu_state("new_emu", "active")
-```
 
 ### 5. Build Incrementally
 
