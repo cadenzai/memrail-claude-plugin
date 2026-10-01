@@ -10,6 +10,7 @@
 - [Decision Topology Patterns](#decision-topology-patterns)
 - [Bounded Complexity](#bounded-complexity)
 - [Mapping Your Topology](#mapping-your-topology)
+- [Visual Review Artifact](#visual-review-artifact)
 
 ---
 
@@ -300,6 +301,35 @@ decision_topology:
       atoms_provided: [order.*, customer.*]
       emu_count: 6
 ```
+
+## Visual Review Artifact
+
+After creating or updating `TOPOLOGY_STATE.yaml`, try to generate
+`TOPOLOGY_STATE.html` beside it and open that page for visual inspection.
+The YAML remains the canonical, reviewable topology state; the HTML is a
+derived view and must not introduce facts, links, or conclusions that are not
+represented in the YAML.
+
+Make the HTML useful for reviewing the system rather than merely pretty-printing
+YAML. Prefer a self-contained page that works locally without a framework,
+CDN, network request, or newly installed dependency. Include, when present:
+
+- project and deployment boundaries;
+- proposal → authority → execution → outcome paths;
+- decision points and their atom, event, and action connections;
+- hidden-authority sites, bypasses, and unsafe fallbacks;
+- invoke, atom, action, coherence, and reachability gaps;
+- prioritized findings with severity and exact file/symbol evidence;
+- unknowns and out-of-scope areas.
+
+Escape repository-derived text before inserting it into HTML. Preserve exact
+identifiers and evidence locations, label inferred relationships, and render
+missing information as unknown instead of inventing edges. If the environment
+supports a browser or HTML preview, inspect the result for clipping, unreadable
+labels, disconnected edges, and misleading grouping. If rendering is not
+available, still produce the best-effort HTML when possible and report that it
+was not visually verified. Do not install visualization dependencies or widen
+a read-only audit merely to create this derived view.
 
 ### Step 4: Prioritize by Impact
 

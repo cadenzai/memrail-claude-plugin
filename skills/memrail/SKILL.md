@@ -61,7 +61,7 @@ Load these files on demand based on the task phase. Organized by typical project
 
 Read [references/05-sdk-integration-python.md](references/05-sdk-integration-python.md) (Python) or [references/05b-sdk-integration-typescript.md](references/05b-sdk-integration-typescript.md) (TypeScript) when bootstrapping a new project — SDK installation, client configuration, API key setup, environment variables, org/workspace/project hierarchy. Also covers ATOM builders, invocation patterns, event ingestion, workspace purging, and error handling.
 
-Read [references/06-decision-topology.md](references/06-decision-topology.md) when designing integration architecture — identifying decision points in your application, choosing topology patterns (request gate, agent loop, event-driven), or mapping atom contracts across invoke points.
+Read [references/06-decision-topology.md](references/06-decision-topology.md) when designing or auditing integration architecture — identifying decision points, choosing topology patterns, mapping atom contracts across invoke points, and producing the canonical YAML plus its best-effort HTML review view.
 
 Read [references/07-action-connectivity.md](references/07-action-connectivity.md) when planning which action types to use, performing gap analysis before deployment, or building the action connectivity matrix for your system.
 
